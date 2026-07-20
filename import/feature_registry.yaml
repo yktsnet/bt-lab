@@ -1,0 +1,161 @@
+# feature_registry.yaml
+# S1c(enrich_parquet) が Parquet に焼き込む特徴量の一覧
+# S2(gen_strategies) が required_features の存在チェックに使用する
+
+precompute:
+  # RSI
+  - rsi8
+  - rsi14
+  - rsi21
+
+  # EMA
+  - ema9
+  - ema12
+  - ema18
+  - ema26
+  - ema34
+  - ema50
+  - ema100
+
+  # CCI
+  - cci14
+  - cci20
+  - cci30
+
+  # Stochastic %K
+  - stoch_k9
+  - stoch_k14
+  - stoch_k21
+
+  # Stochastic %D (k_d)
+  - stoch_d9_3
+  - stoch_d9_5
+  - stoch_d9_7
+  - stoch_d14_3
+  - stoch_d14_5
+  - stoch_d14_7
+  - stoch_d21_3
+  - stoch_d21_5
+  - stoch_d21_7
+
+  # MACD histogram (fast_slow_signal)
+  - macd_hist_12_26_9
+  - macd_hist_12_26_12
+  - macd_hist_16_34_9
+  - macd_hist_16_34_12
+  - macd_hist_20_40_9
+  - macd_hist_20_40_12
+
+  # ATR
+  - atr14
+  - atr21
+  - atr28
+  - atr30
+
+  # Bollinger Bands (period_dev)
+  - bb_upper_20_1p5
+  - bb_lower_20_1p5
+  - bb_bw_20_1p5
+  - bb_upper_20_2p0
+  - bb_lower_20_2p0
+  - bb_bw_20_2p0
+  - bb_upper_20_2p5
+  - bb_lower_20_2p5
+  - bb_bw_20_2p5
+  - bb_upper_30_1p5
+  - bb_lower_30_1p5
+  - bb_bw_30_1p5
+  - bb_upper_30_2p0
+  - bb_lower_30_2p0
+  - bb_bw_30_2p0
+  - bb_upper_30_2p5
+  - bb_lower_30_2p5
+  - bb_bw_30_2p5
+
+  # Keltner Channel (ema20_atr_mult)
+  - kc_upper_20_14_1p5
+  - kc_lower_20_14_1p5
+  - kc_upper_20_14_2p0
+  - kc_lower_20_14_2p0
+  - kc_upper_20_14_2p5
+  - kc_lower_20_14_2p5
+  - kc_upper_20_30_1p5
+  - kc_lower_20_30_1p5
+  - kc_upper_20_30_2p0
+  - kc_lower_20_30_2p0
+  - kc_upper_20_30_2p5
+  - kc_lower_20_30_2p5
+
+  # SuperTrend state (period_factor)
+  - st_state_7_2p0
+  - st_state_7_2p5
+  - st_state_7_3p0
+  - st_state_10_2p0
+  - st_state_10_2p5
+  - st_state_10_3p0
+  - st_state_14_2p0
+  - st_state_14_2p5
+  - st_state_14_3p0
+
+  # Vortex
+  - vi_plus7
+  - vi_minus7
+  - vi_plus14
+  - vi_minus14
+  - vi_plus21
+  - vi_minus21
+
+  # Z-score absolute
+  - zabs20
+  - zabs30
+  - zabs60
+
+  # Donchian Channel
+  - dc_upper20
+  - dc_lower20
+  - dc_upper55
+  - dc_lower55
+  - dc_upper120
+  - dc_lower120
+  - dc_upper240
+  - dc_lower240
+
+  # Heikin-Ashi
+  - ha_close
+  - ha_open
+
+  # Ichimoku
+  - ichi_tenkan7
+  - ichi_tenkan9
+  - ichi_kijun22
+  - ichi_kijun26
+  - ichi_span_a_7_22
+  - ichi_span_a_9_26
+  - ichi_span_b44
+  - ichi_span_b52
+
+  # SMA (price_above_ma 向け)
+  - sma20
+  - sma50
+  - sma200
+
+  # ADX / DI+/DI- (adx_trend 向け)
+  - adx14
+  - adx21
+  - di_plus14
+  - di_minus14
+  - di_plus21
+  - di_minus21
+
+  # デイリーピボット (pivot_touch 向け)
+  - pivot_p
+  - pivot_r1
+  - pivot_s1
+  - pivot_r2
+  - pivot_s2
+
+  # 前日来高値/安値 (daily_high_break 向け)
+  - prev_day_high_1
+  - prev_day_low_1
+  - prev_day_high_5
+  - prev_day_low_5

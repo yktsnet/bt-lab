@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# pandas/pyarrow入りのpython3のパスを1行だけ標準出力に返す。
+# bin/bt (AI/スクリプト向け)共通の発見ロジック。ここだけが情報源。
+set -u
+
+p="$(command -v python3)" || {
+  echo "bt-python: python3 not found in PATH" >&2
+  exit 1
+}
+if ! "$p" -c "import pandas, pyarrow" >/dev/null 2>&1; then
+  echo "bt-python: pandas/pyarrow not importable from $p (pip install -r requirements.txt)" >&2
+  exit 1
+fi
+echo "$p"

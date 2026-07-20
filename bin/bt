@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# bt-lab の非対話エントリーポイント。AI/スクリプト向け。
+# 引数無しでも対話(bt.py flow)には読み替えない — bt.py本来の「引数無し=help」のまま
+# なので、標準入力の無い呼び出しでも固まらない。対話利用は `python3 bt.py flow`
+# を直接呼ぶ。
+set -u
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PY="$("$DIR/bin/bt-python")" || exit 1
+exec env PYTHONPATH="$DIR" "$PY" "$DIR/bt.py" "$@"
