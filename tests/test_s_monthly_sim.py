@@ -2,6 +2,7 @@ from datetime import date
 
 import numpy as np
 import pandas as pd
+import pytest
 
 import core.s_monthly_sim as sim
 
@@ -119,6 +120,55 @@ def test_run_writes_daily_csv_for_snapshot_strategies(monkeypatch, tmp_path):
     result = pd.read_csv(csvs[0])
     assert set(result.columns) == {"tid", "slug", "entries", "pips_sum", "pips_avg"}
     assert result.iloc[0]["tid"] == "rsi_zone"
+
+
+def test_run_write_failure_does_not_leave_partial_daily_csv(monkeypatch, tmp_path):
+    """run()の日次CSV書き込みは.tmpへ書いてからos.replaceする（atomic write契約, conventions.md）
+    ため、書き込み中に例外が起きても壊れた出力ファイルが残らない。"""
+    monkeypatch.setenv("BACKTEST_DATA_ROOT", str(tmp_path))
+
+    rank_root = tmp_path / "rank" / "all"
+    strategies_root = tmp_path / "strategies"
+    parquet_root = tmp_path / "parquet_data"
+
+    snap_dir = rank_root / "snapshots" / "2026-01"
+    snap_dir.mkdir(parents=True)
+    (strategies_root / "rsi_zone").mkdir(parents=True)
+    strat_src = (
+        "import pandas as pd\n"
+        "def apply_entry_flag(df, params):\n"
+        "    df = df.copy()\n"
+        "    df['entry_flag'] = 1\n"
+        "    df['buy_sell'] = 'BUY'\n"
+        "    return df\n"
+    )
+    (strategies_root / "rsi_zone" / "a20.py").write_text(strat_src)
+    pd.DataFrame([{"id": "rsi_zone", "slug": "a20", "pips_avg_per_entry": 0.9}]).to_csv(
+        snap_dir / "rank_by_pips_avg.csv", index=False
+    )
+
+    (parquet_root / "year=2026").mkdir(parents=True)
+    times = pd.date_range("2026-02-02", periods=20, freq="5min", tz="UTC")  # Monday
+    close = 100 + np.cumsum(np.random.RandomState(1).randn(20) * 0.01)
+    df = pd.DataFrame({
+        "time_utc": times, "open": close, "high": close + 0.02, "low": close - 0.02, "close": close,
+    })
+    df.to_parquet(parquet_root / "year=2026" / "02.parquet", index=False)
+
+    monkeypatch.setattr(
+        pd.DataFrame, "to_csv",
+        lambda self, *a, **k: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    args = sim.argparse.Namespace(
+        pip_size=None, tp_pips=None, sl_pips=None, max_entries=None,
+        abn_burst_pips=None, abn_forward_block_bars=None, spread_pips=None, month="2026-02",
+    )
+    with pytest.raises(OSError):
+        sim.run(args)
+
+    out_dir = tmp_path / "monthly" / "2026-02" / "ALL"
+    assert not list(out_dir.glob("*.csv"))
 
 
 def test_run_skips_month_without_snapshot(monkeypatch, tmp_path, capsys):

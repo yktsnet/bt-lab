@@ -1,3 +1,7 @@
+from pathlib import Path
+
+import pytest
+
 import core.s2_gen_strategies as s2
 
 
@@ -60,6 +64,28 @@ def test_main_deletes_stray_files_not_in_desired_set(monkeypatch, tmp_path, caps
     out = capsys.readouterr().out
     assert "deleted=1" in out
     assert not stray.exists()
+
+
+def test_main_write_failure_leaves_existing_strategy_file_untouched(monkeypatch, tmp_path):
+    """main()は.tmpへ書いてからos.replaceする（atomic write契約, conventions.md）ため、
+    書き込み中に例外が起きても既存の戦略ファイルは壊れた状態で残らない。"""
+    monkeypatch.setenv("BACKTEST_DATA_ROOT", str(tmp_path))
+    s2.main()
+
+    strategies_root = tmp_path / "strategies" / "rsi_zone"
+    target = sorted(strategies_root.glob("*.py"))[0]
+    stale_content = target.read_text() + "\n# stale marker\n"
+    target.write_text(stale_content)
+
+    monkeypatch.setattr(
+        Path, "write_text",
+        lambda self, *a, **k: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    with pytest.raises(OSError):
+        s2.main()
+
+    assert target.read_text() == stale_content
 
 
 def test_main_skips_combos_with_missing_required_features(monkeypatch, tmp_path, capsys):

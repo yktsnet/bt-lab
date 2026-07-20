@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
+import core.s2_gen_strategies as s2
 import core.s3_calc_positions as s3
 
 
@@ -131,6 +132,37 @@ def test_process_strategy_month_skips_when_output_is_fresh(tmp_path):
     assert s3._process_strategy_month(strategy_path, parquet_path, out_path, entry_interval_min=0) is True
     # second call: out_path mtime >= inputs -> should be skipped (returns False)
     assert s3._process_strategy_month(strategy_path, parquet_path, out_path, entry_interval_min=0) is False
+
+
+def test_process_strategy_month_honors_real_rsi_zone_template_contract(monkeypatch, tmp_path):
+    """実在するstrategies_md/oscillator/rsi_zone/template.pyがS2で生成され、S3を通した際に
+    apply_entry_flagの3カラム契約(entry_flag/buy_sell/trend_dir, conventions.md)を満たすこと。"""
+    monkeypatch.setenv("BACKTEST_DATA_ROOT", str(tmp_path))
+    s2.main()
+
+    strategy_path = tmp_path / "strategies" / "rsi_zone" / "distance_from_mid20_rsi_period14.py"
+    assert strategy_path.exists()
+
+    # rsi14: distance_from_mid=20 -> upper=70(SELL zone), lower=30(BUY zone)
+    times = pd.date_range("2026-01-05", periods=6, freq="5min", tz="UTC")
+    df = pd.DataFrame({
+        "time_utc": times,
+        "open": [100.0] * 6, "high": [100.05] * 6, "low": [99.95] * 6, "close": [100.0] * 6,
+        "rsi14": [90, 90, 50, 50, 10, 10],
+    })
+    parquet_path = tmp_path / "bars.parquet"
+    df.to_parquet(parquet_path, index=False)
+    out_path = tmp_path / "out.parquet"
+
+    wrote = s3._process_strategy_month(strategy_path, parquet_path, out_path, entry_interval_min=0)
+    assert wrote is True
+
+    result = pd.read_parquet(out_path)
+    assert set(result.columns) >= {"entry_flag", "buy_sell", "trend_dir"}
+    assert (result["entry_flag"] == 1).all()
+    assert set(result["buy_sell"]) == {"SELL", "BUY"}
+    assert (result.loc[result["buy_sell"] == "SELL", "trend_dir"] == "UP").all()
+    assert (result.loc[result["buy_sell"] == "BUY", "trend_dir"] == "DOWN").all()
 
 
 def test_run_end_to_end_writes_positions(monkeypatch, tmp_path):

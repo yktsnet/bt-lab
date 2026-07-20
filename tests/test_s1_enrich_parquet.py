@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 import core.s1_enrich_parquet as s1c
 
@@ -47,6 +48,24 @@ def test_enrich_file_is_idempotent(tmp_path):
     s1c._enrich_file(path)
     added_second = s1c._enrich_file(path)
     assert added_second == 0
+
+
+def test_enrich_file_write_failure_leaves_original_file_untouched(monkeypatch, tmp_path):
+    """_enrich_fileは.tmpへ書いてからos.replaceする（atomic write契約, conventions.md）ため、
+    書き込み中に例外が起きても元のファイルは壊れた状態で残らない。"""
+    path = tmp_path / "01.parquet"
+    _write(path, _bars())
+    original_bytes = path.read_bytes()
+
+    monkeypatch.setattr(
+        pd.DataFrame, "to_parquet",
+        lambda self, *a, **k: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    with pytest.raises(OSError):
+        s1c._enrich_file(path)
+
+    assert path.read_bytes() == original_bytes
 
 
 def test_enrich_file_converts_int_ms_time_utc(tmp_path):

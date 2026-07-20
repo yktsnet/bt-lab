@@ -1,3 +1,5 @@
+import re
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -192,3 +194,13 @@ def test_compute_all_without_time_utc_skips_daily_features():
     assert "pivot_p" not in cols
     assert "prev_day_high_1" not in cols
     assert "rsi14" in cols
+
+
+def test_compute_all_keys_follow_snake_case_naming_convention():
+    """lib/features.pyの列名規約(インジケータ名+パラメータのスネーク記法, conventions.md)が
+    compute_all()が返す全キーに渡って成立すること。"""
+    df = _ohlc(300)
+    keys = features.compute_all(df).keys()
+    assert keys
+    for name in keys:
+        assert re.fullmatch(r"[a-z][a-z0-9_]*", name), name
