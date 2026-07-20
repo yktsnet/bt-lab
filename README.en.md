@@ -46,16 +46,16 @@ For interactive human use, there's `zsh/bt.sh`. Add `source /path/to/bt-lab/zsh/
 ```mermaid
 flowchart TD
     subgraph P1["Data prep (s1b/s1c)"]
-        A[JSONL bars] --> B[parquet] --> C[+features]
+        A["JSONL bars"] --> B["parquet"] --> C["+features"]
     end
     subgraph P2["Strategy & entry (s2/s3/s4)"]
-        D["strategies/&lt;kind&gt;/*.py"] --> E[positions] --> F["ban list (dedup)"]
+        D["strategies/&lt;kind&gt;/*.py"] --> E["positions"] --> F["ban list (dedup)"]
     end
     subgraph P3["Position engine (s5)"]
-        G[pos_events (TP/SL/EOD resolution)]
+        G["pos_events (TP/SL/EOD resolution)"]
     end
     subgraph P4["Aggregate & rank (s6/s7/s8)"]
-        H[+pips_net] --> I[monthly/quarterly/yearly summary] --> J[rank (DD-filtered leaderboard)]
+        H["+pips_net"] --> I["monthly/quarterly/yearly summary"] --> J["rank (DD-filtered leaderboard)"]
     end
     P1 --> P2 --> P3 --> P4
 ```

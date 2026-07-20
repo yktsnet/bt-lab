@@ -46,16 +46,16 @@ AI/スクリプトからの非対話実行には`bin/bt <stage> [args]`（シェ
 ```mermaid
 flowchart TD
     subgraph P1["Data prep (s1b/s1c)"]
-        A[JSONL bars] --> B[parquet] --> C[+features]
+        A["JSONL bars"] --> B["parquet"] --> C["+features"]
     end
     subgraph P2["Strategy & entry (s2/s3/s4)"]
-        D["strategies/&lt;kind&gt;/*.py"] --> E[positions] --> F["ban list(重複排除)"]
+        D["strategies/&lt;kind&gt;/*.py"] --> E["positions"] --> F["ban list (重複排除)"]
     end
     subgraph P3["Position engine (s5)"]
-        G[pos_events(TP/SL/EOD判定)]
+        G["pos_events (TP/SL/EOD判定)"]
     end
     subgraph P4["Aggregate & rank (s6/s7/s8)"]
-        H[+pips_net] --> I[月次/四半期/年次summary] --> J[rank(DDフィルタ済み順位表)]
+        H["+pips_net"] --> I["月次/四半期/年次summary"] --> J["rank (DDフィルタ済み順位表)"]
     end
     P1 --> P2 --> P3 --> P4
 ```
