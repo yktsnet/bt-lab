@@ -39,20 +39,28 @@ python3 bt.py flow                   # 対話形式でフェーズを選んで�
 
 AI/スクリプトからの非対話実行には`bin/bt <stage> [args]`（シェル非依存の実行可能スクリプト）を使う。`bt.py --help`で全stage一覧、`bt.py <stage> --help`で各段の引数を確認できる。
 
+人間の対話利用向けには`zsh/bt.sh`がある。`.zshrc`等で`source /path/to/bt-lab/zsh/bt.sh`すると、`bt`（引数無しで`bt.py flow`に読み替え、tab補完つき）と`bt-py`（個別スクリプトを直接叩く用）が使えるようになる。
+
 ## Architecture
 
 ```mermaid
-flowchart LR
-    A[JSONL bars] -->|s1_export_parquet| B[parquet\nyear/month]
-    B -->|s1_enrich_parquet| C[+features\nRSI/EMA/ATR...]
-    C -->|s2_gen_strategies| D["strategies/<kind>/*.py\n(strategies_mdから生成)"]
-    D -->|s3_calc_positions| E[positions\nentry_flag/buy_sell]
-    E -->|s4_ban_build| F["ban list\n(重複排除)"]
-    F -->|s5_position_engine| G[pos_events\nTP/SL/EOD判定]
-    G -->|s6_position_pips| H[+pips_net]
-    H -->|s7_position_summary| I[月次/四半期/年次\nsummary]
-    I -->|s8_strategy_rank| J[rank\nDDフィルタ済み順位表]
+flowchart TD
+    subgraph P1["Data prep (s1b/s1c)"]
+        A[JSONL bars] --> B[parquet] --> C[+features]
+    end
+    subgraph P2["Strategy & entry (s2/s3/s4)"]
+        D["strategies/&lt;kind&gt;/*.py"] --> E[positions] --> F["ban list(重複排除)"]
+    end
+    subgraph P3["Position engine (s5)"]
+        G[pos_events(TP/SL/EOD判定)]
+    end
+    subgraph P4["Aggregate & rank (s6/s7/s8)"]
+        H[+pips_net] --> I[月次/四半期/年次summary] --> J[rank(DDフィルタ済み順位表)]
+    end
+    P1 --> P2 --> P3 --> P4
 ```
+
+`bt.py flow`の対話メニューが選ぶ4フェーズと同じ区切り(`bt.py`の`PHASES`定義)。
 
 `bt.py`が上記8段(S1b〜S8)を配線する単一エントリーポイント。各段は独立したCLIとしても`core/<stage>.py`から直接実行できる。`strategies_md/`が戦略仕様の唯一の正しいソースで、`s2`がkind単位の`template.py`を読み込み`PARAMS_GRID`を直積展開して個別戦略ファイルを生成する（規約は[strategies_md/HOWTO.md](strategies_md/HOWTO.md)）。
 

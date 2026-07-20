@@ -39,20 +39,28 @@ python3 bt.py flow                   # interactive phase-by-phase runner
 
 For non-interactive use from AI/scripts, use `bin/bt <stage> [args]` (a shell-independent executable). Run `bt.py --help` to list all stages, or `bt.py <stage> --help` for a stage's arguments.
 
+For interactive human use, there's `zsh/bt.sh`. Add `source /path/to/bt-lab/zsh/bt.sh` to your `.zshrc` and you get `bt` (reinterprets a bare call as `bt.py flow`, with tab completion) and `bt-py` (for invoking individual scripts directly).
+
 ## Architecture
 
 ```mermaid
-flowchart LR
-    A[JSONL bars] -->|s1_export_parquet| B[parquet\nyear/month]
-    B -->|s1_enrich_parquet| C[+features\nRSI/EMA/ATR...]
-    C -->|s2_gen_strategies| D["strategies/<kind>/*.py\n(generated from strategies_md)"]
-    D -->|s3_calc_positions| E[positions\nentry_flag/buy_sell]
-    E -->|s4_ban_build| F["ban list\n(dedup)"]
-    F -->|s5_position_engine| G[pos_events\nTP/SL/EOD resolution]
-    G -->|s6_position_pips| H[+pips_net]
-    H -->|s7_position_summary| I[monthly/quarterly/yearly\nsummary]
-    I -->|s8_strategy_rank| J[rank\nDD-filtered leaderboard]
+flowchart TD
+    subgraph P1["Data prep (s1b/s1c)"]
+        A[JSONL bars] --> B[parquet] --> C[+features]
+    end
+    subgraph P2["Strategy & entry (s2/s3/s4)"]
+        D["strategies/&lt;kind&gt;/*.py"] --> E[positions] --> F["ban list (dedup)"]
+    end
+    subgraph P3["Position engine (s5)"]
+        G[pos_events (TP/SL/EOD resolution)]
+    end
+    subgraph P4["Aggregate & rank (s6/s7/s8)"]
+        H[+pips_net] --> I[monthly/quarterly/yearly summary] --> J[rank (DD-filtered leaderboard)]
+    end
+    P1 --> P2 --> P3 --> P4
 ```
+
+Same 4-way split as the phases in `bt.py flow`'s interactive menu (the `PHASES` definition in `bt.py`).
 
 `bt.py` is the single entry point wiring the 8 stages above (S1b–S8). Each stage can also be run directly as an independent CLI via `core/<stage>.py`. `strategies_md/` is the single source of truth for strategy specs: `s2` reads each kind's `template.py` and expands `PARAMS_GRID` into individual strategy files (convention documented in [strategies_md/HOWTO.md](strategies_md/HOWTO.md)).
 

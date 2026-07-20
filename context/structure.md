@@ -6,6 +6,8 @@ bt-lab/
 ├── bin/
 │   ├── bt                         # AI/スクリプト向け非対話実行（シェル非依存）
 │   └── bt-python                  # pandas/pyarrow入りpython3の解決
+├── zsh/
+│   └── bt.sh                      # 人間の対話利用向け（source すると bt/bt-py が使える。tab補完つき）
 ├── core/                        # S1b〜S8パイプライン本体
 │   ├── s1_export_parquet.py       # JSONL → parquet(year=YYYY/MM.parquet)
 │   ├── s1_enrich_parquet.py       # 特徴量列を焼き込み
