@@ -8,9 +8,7 @@ import numpy as np
 import pandas as pd
 
 
-# ────────────────────────────────────────────
 # RSI
-# ────────────────────────────────────────────
 
 def rsi(df: pd.DataFrame, period: int) -> pd.Series:
     """列名: rsi{period}"""
@@ -23,9 +21,7 @@ def rsi(df: pd.DataFrame, period: int) -> pd.Series:
     return (100 - 100 / (1 + rs)).astype("float32")
 
 
-# ────────────────────────────────────────────
 # EMA / SMA
-# ────────────────────────────────────────────
 
 def ema(df: pd.DataFrame, period: int) -> pd.Series:
     """列名: ema{period}"""
@@ -37,9 +33,7 @@ def sma(df: pd.DataFrame, period: int) -> pd.Series:
     return df["close"].rolling(period, min_periods=period).mean().astype("float32")
 
 
-# ────────────────────────────────────────────
 # CCI
-# ────────────────────────────────────────────
 
 def cci(df: pd.DataFrame, period: int) -> pd.Series:
     """列名: cci{period}"""
@@ -51,9 +45,7 @@ def cci(df: pd.DataFrame, period: int) -> pd.Series:
     return ((tp - ma) / (0.015 * md.replace(0, np.nan))).astype("float32")
 
 
-# ────────────────────────────────────────────
 # Stochastic %K と %D
-# ────────────────────────────────────────────
 
 def stoch_k(df: pd.DataFrame, k_period: int) -> pd.Series:
     """列名: stoch_k{k_period}"""
@@ -69,9 +61,7 @@ def stoch_d(df: pd.DataFrame, k_period: int, d_period: int) -> pd.Series:
     return k.rolling(d_period, min_periods=d_period).mean().astype("float32")
 
 
-# ────────────────────────────────────────────
 # MACD histogram
-# ────────────────────────────────────────────
 
 def macd_hist(df: pd.DataFrame, fast: int, slow: int, signal: int) -> pd.Series:
     """列名: macd_hist_{fast}_{slow}_{signal}"""
@@ -82,9 +72,7 @@ def macd_hist(df: pd.DataFrame, fast: int, slow: int, signal: int) -> pd.Series:
     return (macd_line - signal_line).astype("float32")
 
 
-# ────────────────────────────────────────────
 # ATR
-# ────────────────────────────────────────────
 
 def atr(df: pd.DataFrame, period: int) -> pd.Series:
     """列名: atr{period}"""
@@ -97,9 +85,7 @@ def atr(df: pd.DataFrame, period: int) -> pd.Series:
     return tr.ewm(com=period - 1, adjust=False).mean().astype("float32")
 
 
-# ────────────────────────────────────────────
 # Bollinger Bands
-# ────────────────────────────────────────────
 
 def bb_upper(df: pd.DataFrame, period: int, dev: float) -> pd.Series:
     """列名: bb_upper_{period}_{dev_str}  例: bb_upper_20_2p0"""
@@ -124,9 +110,7 @@ def bb_bandwidth(df: pd.DataFrame, period: int, dev: float) -> pd.Series:
     return ((upper - lower) / ma.replace(0, np.nan)).astype("float32")
 
 
-# ────────────────────────────────────────────
 # Keltner Channel
-# ────────────────────────────────────────────
 
 def keltner_upper(df: pd.DataFrame, ema_period: int, atr_period: int, mult: float) -> pd.Series:
     """列名: kc_upper_{ema_period}_{atr_period}_{mult_str}"""
@@ -142,9 +126,7 @@ def keltner_lower(df: pd.DataFrame, ema_period: int, atr_period: int, mult: floa
     return (mid - mult * at).astype("float32")
 
 
-# ────────────────────────────────────────────
 # SuperTrend
-# ────────────────────────────────────────────
 
 def supertrend(df: pd.DataFrame, period: int, factor: float) -> pd.Series:
     """
@@ -186,9 +168,7 @@ def supertrend(df: pd.DataFrame, period: int, factor: float) -> pd.Series:
     return pd.Series(direction, index=df.index, dtype="float32")
 
 
-# ────────────────────────────────────────────
 # Vortex
-# ────────────────────────────────────────────
 
 def vortex_plus(df: pd.DataFrame, period: int) -> pd.Series:
     """列名: vi_plus{period}"""
@@ -216,9 +196,7 @@ def vortex_minus(df: pd.DataFrame, period: int) -> pd.Series:
     return vi.astype("float32")
 
 
-# ────────────────────────────────────────────
 # Z-score (absolute value)
-# ────────────────────────────────────────────
 
 def zabs(df: pd.DataFrame, window: int) -> pd.Series:
     """列名: zabs{window}"""
@@ -228,9 +206,7 @@ def zabs(df: pd.DataFrame, window: int) -> pd.Series:
     return z.abs().astype("float32")
 
 
-# ────────────────────────────────────────────
 # Donchian Channel
-# ────────────────────────────────────────────
 
 def donchian_upper(df: pd.DataFrame, lookback: int) -> pd.Series:
     """列名: dc_upper{lookback}"""
@@ -242,9 +218,7 @@ def donchian_lower(df: pd.DataFrame, lookback: int) -> pd.Series:
     return df["low"].rolling(lookback, min_periods=lookback).min().astype("float32")
 
 
-# ────────────────────────────────────────────
 # Bollinger Band squeeze (bandwidth percentile)
-# ────────────────────────────────────────────
 
 def bb_bw_pct(df: pd.DataFrame, period: int, dev: float, window: int = 125) -> pd.Series:
     """
@@ -255,9 +229,7 @@ def bb_bw_pct(df: pd.DataFrame, period: int, dev: float, window: int = 125) -> p
     return bw.rolling(window, min_periods=window).rank(pct=True).astype("float32")
 
 
-# ────────────────────────────────────────────
 # Heikin-Ashi
-# ────────────────────────────────────────────
 
 def ha_close(df: pd.DataFrame) -> pd.Series:
     """列名: ha_close"""
@@ -274,9 +246,7 @@ def ha_open(df: pd.DataFrame) -> pd.Series:
     return pd.Series(ho, index=df.index, dtype="float32")
 
 
-# ────────────────────────────────────────────
 # Ichimoku
-# ────────────────────────────────────────────
 
 def _midpoint(high: pd.Series, low: pd.Series, period: int) -> pd.Series:
     return (high.rolling(period).max() + low.rolling(period).min()) / 2
@@ -304,16 +274,12 @@ def ichimoku_span_b(df: pd.DataFrame, span_b: int) -> pd.Series:
     return _midpoint(df["high"], df["low"], span_b).astype("float32")
 
 
-# ────────────────────────────────────────────
 # SMA
-# ────────────────────────────────────────────
 
 # sma() は上で定義済み — compute_all() への追記のみ
 
 
-# ────────────────────────────────────────────
 # ADX / DI+ / DI-  (Wilder DMI)
-# ────────────────────────────────────────────
 
 def _dmi(df: pd.DataFrame, period: int):
     """(di_plus, di_minus, adx) を float32 Series で返す内部ヘルパ。"""
@@ -363,9 +329,7 @@ def di_minus(df: pd.DataFrame, period: int) -> pd.Series:
     return dim
 
 
-# ────────────────────────────────────────────
 # デイリーピボット (pivot_touch 向け)
-# ────────────────────────────────────────────
 
 def _prev_daily_ohlc(df: pd.DataFrame):
     """前日 H/L/C を各バーに対応させた (prev_h, prev_l, prev_c) numpy配列を返す。"""
@@ -396,9 +360,7 @@ def pivot_points(df: pd.DataFrame) -> dict:
     }
 
 
-# ────────────────────────────────────────────
 # 前日来高値/安値 (daily_high_break 向け)
-# ────────────────────────────────────────────
 
 def prev_day_high_low(df: pd.DataFrame) -> dict:
     """
@@ -421,10 +383,8 @@ def prev_day_high_low(df: pd.DataFrame) -> dict:
     return result
 
 
-# ────────────────────────────────────────────
 # ヘルパ: float値を列名用文字列に変換
 # 例: 2.0 -> "2p0", 1.5 -> "1p5", 0.05 -> "0p05"
-# ────────────────────────────────────────────
 
 def _fstr(v: float) -> str:
     s = f"{v:.10f}".rstrip("0")
@@ -433,10 +393,8 @@ def _fstr(v: float) -> str:
     return s.replace(".", "p")
 
 
-# ────────────────────────────────────────────
 # 全特徴量を一括計算して返す
 # T01〜T26 が必要とする全列を網羅
-# ────────────────────────────────────────────
 
 def compute_all(df: pd.DataFrame) -> dict:
     """
