@@ -43,22 +43,12 @@ For interactive human use, there's `zsh/bt.sh`. Add `source /path/to/bt-lab/zsh/
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    subgraph P1["Data prep (s1b/s1c)"]
-        A["JSONL bars"] --> B["parquet"] --> C["+features"]
-    end
-    subgraph P2["Strategy & entry (s2/s3/s4)"]
-        D["strategies/&lt;kind&gt;/*.py"] --> E["positions"] --> F["ban list (dedup)"]
-    end
-    subgraph P3["Position engine (s5)"]
-        G["pos_events (TP/SL/EOD resolution)"]
-    end
-    subgraph P4["Aggregate & rank (s6/s7/s8)"]
-        H["+pips_net"] --> I["monthly/quarterly/yearly summary"] --> J["rank (DD-filtered leaderboard)"]
-    end
-    P1 --> P2 --> P3 --> P4
-```
+| Phase | Stages | Flow |
+|---|---|---|
+| Data prep | s1b / s1c | JSONL bars → parquet → +features |
+| Strategy & entry | s2 / s3 / s4 | `strategies/<kind>/*.py` → positions → ban list (dedup) |
+| Position engine | s5 | pos_events (TP/SL/EOD resolution) |
+| Aggregate & rank | s6 / s7 / s8 | +pips_net → monthly/quarterly/yearly summary → rank (DD-filtered leaderboard) |
 
 Same 4-way split as the phases in `bt.py flow`'s interactive menu (the `PHASES` definition in `bt.py`).
 

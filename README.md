@@ -43,22 +43,12 @@ AI/スクリプトからの非対話実行には`bin/bt <stage> [args]`（シェ
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    subgraph P1["Data prep (s1b/s1c)"]
-        A["JSONL bars"] --> B["parquet"] --> C["+features"]
-    end
-    subgraph P2["Strategy & entry (s2/s3/s4)"]
-        D["strategies/&lt;kind&gt;/*.py"] --> E["positions"] --> F["ban list (重複排除)"]
-    end
-    subgraph P3["Position engine (s5)"]
-        G["pos_events (TP/SL/EOD判定)"]
-    end
-    subgraph P4["Aggregate & rank (s6/s7/s8)"]
-        H["+pips_net"] --> I["月次/四半期/年次summary"] --> J["rank (DDフィルタ済み順位表)"]
-    end
-    P1 --> P2 --> P3 --> P4
-```
+| フェーズ | 段 | 流れ |
+|---|---|---|
+| Data prep | s1b / s1c | JSONL bars → parquet → +features |
+| Strategy & entry | s2 / s3 / s4 | `strategies/<kind>/*.py` → positions → ban list（重複排除） |
+| Position engine | s5 | pos_events（TP/SL/EOD 判定） |
+| Aggregate & rank | s6 / s7 / s8 | +pips_net → 月次/四半期/年次 summary → rank（DD フィルタ済み順位表） |
 
 `bt.py flow`の対話メニューが選ぶ4フェーズと同じ区切り(`bt.py`の`PHASES`定義)。
 
