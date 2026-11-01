@@ -1,7 +1,7 @@
 ## 選抜の当たり具合を月ごとに集計する段を足す
 id: 03
 branch-slug: selection-eval
-status: open
+status: close
 depends: 01
 type: feat
 対象: core/s_selection_eval.py (新規), tests/test_s_selection_eval.py (新規), bt.py, docs/guarantees.md, context/structure.md, README.md, README.en.md
