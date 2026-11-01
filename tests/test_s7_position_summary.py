@@ -1,6 +1,7 @@
 import math
 
 import pandas as pd
+import pytest
 
 import core.s7_position_summary as s7
 
@@ -70,6 +71,7 @@ def test_run_produces_monthly_quarterly_yearly_csv_with_correct_aggregates(monke
     assert row["entries_total"] == 2
     assert row["pips_sum_total"] == 6.0
     assert row["pips_avg_per_entry"] == 3.0
+    assert row["pips_sq_sum_total"] == 116.0  # 10^2 + (-4)^2
     bars = s7._bars_in_window(parquet_root / "01.parquet")
     assert row["bars5m_total"] == bars
     assert row["entry_rate"] == round(2 / bars, 2)
@@ -77,10 +79,12 @@ def test_run_produces_monthly_quarterly_yearly_csv_with_correct_aggregates(monke
     quarterly = pd.read_csv(out_dir / "quarterly_all.csv")
     assert len(quarterly) == 1
     assert quarterly.iloc[0]["entries_total"] == 2
+    assert quarterly.iloc[0]["pips_sq_sum_total"] == 116.0
 
     yearly = pd.read_csv(out_dir / "yearly_all.csv")
     assert len(yearly) == 1
     assert yearly.iloc[0]["pips_sum_total"] == 6.0
+    assert yearly.iloc[0]["pips_sq_sum_total"] == 116.0
 
 
 def test_run_skips_files_without_type_column_or_empty_close(monkeypatch, tmp_path, capsys):
@@ -96,3 +100,33 @@ def test_run_skips_files_without_type_column_or_empty_close(monkeypatch, tmp_pat
 
     s7.run()
     assert "no records found" in capsys.readouterr().out
+
+
+def test_run_pips_sq_sum_total_is_not_rounded_and_sums_across_months(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    parquet_root = tmp_path / "parquet_data" / "year=2026"
+    parquet_root.mkdir(parents=True)
+    times = pd.date_range("2026-01-05", periods=10, freq="5min", tz="UTC")
+    for m in (1, 4):
+        pd.DataFrame({"time_utc": times}).to_parquet(parquet_root / f"{m:02d}.parquet", index=False)
+
+    events_root = tmp_path / "pos_events"
+    _write_events(events_root, "rsi_zone", "a20", 2026, 1, [
+        {"type": "close", "pips_net": 0.123},
+        {"type": "close", "pips_net": 0.456},
+    ])
+    _write_events(events_root, "rsi_zone", "a20", 2026, 4, [{"type": "close", "pips_net": 0.1}])
+
+    s7.run()
+
+    out_dir = tmp_path / "summary" / "all" / "2026"
+    expected_jan = 0.123**2 + 0.456**2
+    monthly = pd.read_csv(out_dir / "monthly_all.csv").set_index("month")
+    assert monthly.loc[1, "pips_sq_sum_total"] == pytest.approx(expected_jan, abs=1e-12)
+    assert monthly.loc[1, "pips_sq_sum_total"] != round(expected_jan, 2)
+
+    yearly = pd.read_csv(out_dir / "yearly_all.csv")
+    assert yearly.iloc[0]["pips_sq_sum_total"] == pytest.approx(expected_jan + 0.1**2, abs=1e-12)
+    quarterly = pd.read_csv(out_dir / "quarterly_all.csv").set_index("quarter")
+    assert quarterly.loc[1, "pips_sq_sum_total"] == pytest.approx(expected_jan, abs=1e-12)
+    assert quarterly.loc[2, "pips_sq_sum_total"] == pytest.approx(0.01, abs=1e-12)

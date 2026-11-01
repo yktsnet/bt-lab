@@ -34,6 +34,7 @@ MONTHLY_COLS = [
     "entry_rate",
     "pips_sum_total",
     "pips_avg_per_entry",
+    "pips_sq_sum_total",
 ]
 QUARTERLY_COLS = [
     "year",
@@ -46,6 +47,7 @@ QUARTERLY_COLS = [
     "entry_rate",
     "pips_sum_total",
     "pips_avg_per_entry",
+    "pips_sq_sum_total",
 ]
 YEARLY_COLS = [
     "year",
@@ -57,6 +59,7 @@ YEARLY_COLS = [
     "entry_rate",
     "pips_sum_total",
     "pips_avg_per_entry",
+    "pips_sq_sum_total",
 ]
 
 
@@ -126,11 +129,11 @@ def run() -> None:
                             continue
 
                         entries = len(close)
-                        pips = (
-                            pd.to_numeric(close.get("pips_net"), errors="coerce")
-                            .fillna(0)
-                            .sum()
-                        )
+                        pips_each = pd.to_numeric(
+                            close.get("pips_net"), errors="coerce"
+                        ).fillna(0)
+                        pips = pips_each.sum()
+                        pips_sq = (pips_each**2).sum()
                         bars = bars_by_ym.get((year, month), 0)
 
                         if entries > 0:
@@ -144,6 +147,7 @@ def run() -> None:
                                     entries,
                                     bars,
                                     float(pips),
+                                    float(pips_sq),
                                 )
                             )
                     except Exception as e:
@@ -166,6 +170,7 @@ def run() -> None:
             "entries_total",
             "bars5m_total",
             "pips_sum_total",
+            "pips_sq_sum_total",
         ],
     )
     mdf["entry_rate"] = mdf.apply(
@@ -185,6 +190,7 @@ def run() -> None:
         axis=1,
     )
     mdf["pips_sum_total"] = mdf["pips_sum_total"].apply(_r2)
+    # pips_sq_sum_total は s8 の t値の分散項に使うため丸めない
     mdf = mdf.sort_values(["id", "slug", "year", "month"]).reset_index(drop=True)
 
     mdf["quarter"] = mdf["month"].apply(_quarter)
@@ -192,6 +198,7 @@ def run() -> None:
         entries_total=("entries_total", "sum"),
         bars5m_total=("bars5m_total", "sum"),
         pips_sum_total=("pips_sum_total", "sum"),
+        pips_sq_sum_total=("pips_sq_sum_total", "sum"),
     )
     qdf["entry_rate"] = qdf.apply(
         lambda r: (
@@ -215,6 +222,7 @@ def run() -> None:
         entries_total=("entries_total", "sum"),
         bars5m_total=("bars5m_total", "sum"),
         pips_sum_total=("pips_sum_total", "sum"),
+        pips_sq_sum_total=("pips_sq_sum_total", "sum"),
     )
     ydf["entry_rate"] = ydf.apply(
         lambda r: (

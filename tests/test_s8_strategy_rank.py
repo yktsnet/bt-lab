@@ -184,3 +184,131 @@ def test_run_all_candidates_banned_yields_empty_rank(monkeypatch, tmp_path):
     s8.run(_s8_args())
 
     assert pd.read_csv(tmp_path / "rank" / "all" / "rank_by_pips_avg.csv").empty
+
+
+def _sq_rows(slug, monthly_samples, year=2025):
+    """月ごとの pips_net 標本から、s7 が書く月次行を作る。"""
+    rows = []
+    for m, samples in enumerate(monthly_samples, start=1):
+        rows.append({
+            "year": year, "month": m, "session": "all", "id": "rsi_zone", "slug": slug,
+            "entries_total": len(samples), "bars5m_total": 1000,
+            "entry_rate": len(samples) / 1000,
+            "pips_sum_total": float(sum(samples)),
+            "pips_avg_per_entry": sum(samples) / len(samples),
+            "pips_sq_sum_total": float(sum(x * x for x in samples)),
+        })
+    return rows
+
+
+def _tstat_summary_rows():
+    return (
+        _sq_rows("many", [[1, 2], [3, 4]])  # n=4 mean=2.5 sd=sqrt(5/3)
+        + _sq_rows("lucky", [[9], [0]])  # n=2 mean=4.5 sd=sqrt(40.5) 偶然の1発
+        + _sq_rows("single", [[5]])  # n=1 → NaN
+        + _sq_rows("flat", [[2, 2], [2]])  # sd=0 → NaN
+    )
+
+
+def test_pips_tstat_hand_calculated():
+    n = pd.Series([4.0])
+    t = s8._pips_tstat(n, pd.Series([10.0]), pd.Series([30.0]))
+    expected = 2.5 / (((30.0 - 10.0**2 / 4) / 3) ** 0.5 / 4**0.5)
+    assert t.iloc[0] == pytest.approx(expected)
+    assert expected == pytest.approx(3.8730, abs=1e-4)
+
+
+def test_pips_tstat_is_nan_for_single_entry_or_zero_deviation():
+    t = s8._pips_tstat(
+        pd.Series([1.0, 3.0]), pd.Series([5.0, 6.0]), pd.Series([25.0, 12.0])
+    )
+    assert t.isna().all()
+
+
+def test_run_writes_rank_by_tstat_sorted_desc_with_nan_last(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    monkeypatch.delenv("S8_AS_OF", raising=False)
+    _write_monthly_csv(tmp_path / "summary", 2025, _tstat_summary_rows())
+
+    s8.run(_s8_args())
+
+    rank_root = tmp_path / "rank" / "all"
+    tstat = pd.read_csv(rank_root / "rank_by_tstat.csv")
+    avg = pd.read_csv(rank_root / "rank_by_pips_avg.csv")
+
+    assert list(tstat["slug"][:2]) == ["many", "lucky"]
+    assert tstat.loc[tstat["slug"] == "many", "pips_tstat"].iloc[0] == pytest.approx(3.8730, abs=1e-4)
+    assert tstat.loc[tstat["slug"] == "lucky", "pips_tstat"].iloc[0] == pytest.approx(
+        4.5 / ((40.5**0.5) / 2**0.5), abs=1e-4
+    )
+    assert set(tstat["slug"][2:]) == {"single", "flat"}
+    assert tstat["pips_tstat"][2:].isna().all()
+    assert tstat["pips_tstat"][:2].notna().all()
+
+    # 対象集合は rank_by_pips_avg.csv と同じで、列は pips_tstat が増えるだけ
+    assert set(tstat["slug"]) == set(avg["slug"])
+    assert list(tstat.columns) == list(avg.columns) + ["pips_tstat"]
+    # 既存の順位は t値の影響を受けない
+    assert avg["pips_avg_per_entry"].is_monotonic_decreasing
+    assert "pips_sq_sum_total" not in avg.columns
+
+
+def test_run_tstat_uses_same_candidate_set_after_filters(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    monkeypatch.delenv("S8_AS_OF", raising=False)
+    rows = _tstat_summary_rows() + _sq_rows("loser", [[-5, -5], [-5, -5]])
+    _write_monthly_csv(tmp_path / "summary", 2025, rows)
+    _write_ban(tmp_path / "ban" / "entry_ban_all_20260101_0000.yaml", ["lucky"])
+
+    s8.run(_s8_args())
+
+    rank_root = tmp_path / "rank" / "all"
+    tstat = pd.read_csv(rank_root / "rank_by_tstat.csv")
+    avg = pd.read_csv(rank_root / "rank_by_pips_avg.csv")
+    assert "loser" not in set(tstat["slug"])
+    assert "lucky" not in set(tstat["slug"])
+    assert set(tstat["slug"]) == set(avg["slug"]) == {"many", "single", "flat"}
+
+
+def test_run_as_of_writes_tstat_snapshot_and_keeps_existing_one(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    _write_monthly_csv(tmp_path / "summary", 2025, _tstat_summary_rows())
+
+    s8.run(_s8_args(as_of="2025-12"))
+
+    rank_root = tmp_path / "rank" / "all"
+    assert not (rank_root / "rank_by_tstat.csv").exists()  # as-of は最新ランクを触らない
+    snap_dir = rank_root / "snapshots" / "2025-12"
+    assert (snap_dir / "rank_by_pips_avg.csv").exists()
+    tstat_snap = snap_dir / "rank_by_tstat.csv"
+    assert list(pd.read_csv(tstat_snap)["slug"][:2]) == ["many", "lucky"]
+
+    tstat_snap.write_text("sentinel\n")
+    s8.run(_s8_args(as_of="2025-12"))
+    assert tstat_snap.read_text() == "sentinel\n"
+
+
+def test_run_without_pips_sq_sum_total_skips_tstat_but_writes_other_outputs(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    monkeypatch.delenv("S8_AS_OF", raising=False)
+    _write_monthly_csv(tmp_path / "summary", 2025, _good_rows("a"))
+
+    s8.run(_s8_args())
+
+    rank_root = tmp_path / "rank" / "all"
+    assert not (rank_root / "rank_by_tstat.csv").exists()
+    assert list(pd.read_csv(rank_root / "rank_by_pips_avg.csv")["slug"]) == ["a"]
+    assert (rank_root / "rank_by_pips_sum.csv").exists()
+    assert (rank_root / "dd_filtered.csv").exists()
+    assert "pips_sq_sum_total" in capsys.readouterr().out
+
+
+def test_run_without_pips_sq_sum_total_skips_tstat_snapshot(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    _write_monthly_csv(tmp_path / "summary", 2025, _good_rows("a"))
+
+    s8.run(_s8_args(as_of="2025-12"))
+
+    snap_dir = tmp_path / "rank" / "all" / "snapshots" / "2025-12"
+    assert (snap_dir / "rank_by_pips_avg.csv").exists()
+    assert not (snap_dir / "rank_by_tstat.csv").exists()

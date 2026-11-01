@@ -2,7 +2,7 @@
 
 # drip-sim
 
-A backtest exploration pipeline that evaluates multiple strategy candidates side by side and ranks them by entry rate, drawdown, and Recovery Factor. Rather than searching for a single winning strategy, the point of this repo is the mechanism that keeps selecting "which candidates are still surviving."
+A backtest exploration pipeline that evaluates multiple strategy candidates side by side and filters them by entry rate, drawdown, and Recovery Factor, then ranks the survivors by average pips and t-statistic. Rather than searching for a single winning strategy, the point of this repo is the mechanism that keeps selecting "which candidates are still surviving."
 
 A static, single-strategy backtest gives no guarantee that the strategy will keep working. This repo fixes an operating model where every change to the candidate pool re-ranks all candidates through an 8-stage pipeline (S1b–S8), keeping only the ones that hold up across multiple periods. **The actual strategy catalog, real trading parameters, and performance figures are not published.** The format for placing strategies under `strategies_md/` is published as a convention, but the content is meant to be filled in with the user's own hypotheses — it exists as an implementation neither in the package nor in this repo (see [Scope](#scope) for where the line is drawn).
 
@@ -89,7 +89,7 @@ Full write-ups are in [docs/design-decisions.md](docs/design-decisions.md).
 - **Continuous selection among many candidates, not optimizing a single strategy** — Endlessly tuning one strategy makes it hard to notice when it stops working. Growing the candidate pool and keeping only survivors at the top of the ranking turns degradation detection itself into the pipeline's job.
 - **Catalog pairs SPEC.md (rationale) with template.py (implementation)** — A machine-readable implementation alone loses "why this condition," while a human-readable rationale alone can't be reproduced. Pairing both per kind makes `strategies_md/` itself the single source of truth.
 - **Ban via entry-rate filter + Jaccard dedup** — Expanding `PARAMS_GRID` as a cartesian product produces many near-identical strategies. Naively ranking all of them lets highly correlated candidates dominate the top, so duplicates are thinned out before comparison.
-- **Ranking applies a DD filter before Recovery Factor** — Ranking on total pips alone lets high-drawdown candidates slip through. Survivability is filtered first, then candidates are ordered by capital efficiency.
+- **Ranking cuts off by Recovery Factor and recovery months, then orders by average pips and t-statistic** — Ranking on total pips alone lets high-drawdown candidates slip through. Survivability is filtered first, then the remaining candidates are ordered by average pips per entry and by a t-statistic that accounts for the number of entries.
 - **Each stage (S1b–S8) is an independent CLI** — Prioritizes being able to re-run and verify one stage at a time, so changing a parameter only requires redoing the affected stage. As a side effect, intermediate results persist as files, helping both debugging and reproducibility.
 - **The pipeline core never imports strategy content** — `s2` dynamically loads `template.py` as a one-way dependency, so adding any number of strategies never changes engine-side code.
 - **No real data or real catalog is bundled** — `examples/` contains only synthetic data and a dummy kind. Verifying the pipeline mechanism doesn't require real data, which also lines up with the decision not to publish the edge (the content of the strategies).
@@ -98,7 +98,7 @@ Full write-ups are in [docs/design-decisions.md](docs/design-decisions.md).
 
 **Focus**
 
-- An end-to-end S1b–S8 pipeline that explores multiple strategy candidates and continuously selects among them by entry rate, DD, and Recovery Factor
+- An end-to-end S1b–S8 pipeline that explores multiple strategy candidates and continuously selects among them by entry-rate, DD, and Recovery Factor cutoffs and an average-pips / t-statistic ranking
 - A catalog convention that separates strategy specs into "rationale" (SPEC.md) and "implementation" (template.py), plus generation of strategy files from it
 - A narrowing technique for when candidates multiply: entry-rate filtering and Jaccard-based dedup for building a ban list
 

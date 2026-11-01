@@ -5,7 +5,7 @@ s8_strategy_rank.py — K5相当: Recovery Factorフィルタ + 戦略ランキ�
   1. summary/all/ の monthly_all.csv から Recovery Factor（total_pips / 最大DD）
      と回復月数（最大DD / 月次平均利益）を計算
   2. 基準を満たさない戦略を除外
-  3. 直近N月のデータでランキング（pips_avg順 / pips_sum順）
+  3. 直近N月のデータでランキング（pips_avg順 / pips_sum順 / t値順）
 
 Ban の適用はここで行う。DD フィルタの前に、Ban された候補を集計対象から外す。
   as-of 指定あり: ban/asof/<as_of>/entry_ban_all.yaml（s4 --as-of が作る）
@@ -15,6 +15,7 @@ Ban ファイルが無ければ誰も外さない。
 出力:
   rank/all/rank_by_pips_avg.csv
   rank/all/rank_by_pips_sum.csv
+  rank/all/rank_by_tstat.csv  （pips_tstat の降順。月次CSVに pips_sq_sum_total が無ければ書かない）
   rank/all/dd_filtered.csv  （除外された戦略一覧）
 
 環境変数 / s8_config.json:
@@ -114,6 +115,20 @@ def _dd_metrics(pips_series: pd.Series) -> dict:
         "recovery_factor": round(rf, 2),
         "recovery_months": round(rec_months, 1),
     }
+
+
+def _pips_tstat(n: pd.Series, total: pd.Series, sq_total: pd.Series) -> pd.Series:
+    """
+    1エントリーあたり pips_net の t値 = 平均 / (不偏標準偏差 / sqrt(n))。
+    n < 2 または標準偏差が 0 のときは NaN。
+    """
+    n = n.astype(float)
+    mean = total / n
+    var = (sq_total - total * total / n) / (n - 1)
+    # 全エントリーが同値のとき、桁落ちで残る微小な正の分散を 0 とみなす
+    scale = (sq_total / n).clip(lower=1.0)
+    var = var.where((n >= 2) & (var > 1e-9 * scale))
+    return mean / (var**0.5 / n**0.5)
 
 
 def run(args: argparse.Namespace | None = None) -> None:
@@ -255,11 +270,19 @@ def run(args: argparse.Namespace | None = None) -> None:
         pd.MultiIndex.from_frame(df_recent[["id", "slug"]]).isin(passed_keys)
     ]
 
-    rank_agg = recent_passed.groupby(["id", "slug"], as_index=False).agg(
+    # 古い s7 の出力は pips_sq_sum_total を持たない。一部の月だけ欠けていても合算できない
+    has_sq = (
+        "pips_sq_sum_total" in recent_passed.columns
+        and not recent_passed["pips_sq_sum_total"].isna().any()
+    )
+    agg_spec = dict(
         entries_total=("entries_total", "sum"),
         bars5m_total=("bars5m_total", "sum"),
         pips_sum_total=("pips_sum_total", "sum"),
     )
+    if has_sq:
+        agg_spec["pips_sq_sum_total"] = ("pips_sq_sum_total", "sum")
+    rank_agg = recent_passed.groupby(["id", "slug"], as_index=False).agg(**agg_spec)
     rank_agg["pips_avg_per_entry"] = (
         rank_agg["pips_sum_total"] / rank_agg["entries_total"].replace(0, float("nan"))
     ).round(2)
@@ -280,6 +303,26 @@ def run(args: argparse.Namespace | None = None) -> None:
         how="left",
     )
     rank_agg["session"] = SESSION
+
+    rank_tstat = None
+    if has_sq:
+        rank_tstat = rank_agg.drop(columns=["pips_sq_sum_total"])
+        rank_tstat["pips_tstat"] = _pips_tstat(
+            rank_agg["entries_total"],
+            rank_agg["pips_sum_total"],
+            rank_agg["pips_sq_sum_total"],
+        ).round(4)
+        rank_tstat = rank_tstat.sort_values(
+            "pips_tstat", ascending=False, na_position="last", kind="stable"
+        ).reset_index(drop=True)
+        rank_tstat.index += 1
+        rank_tstat.index.name = "rank"
+        rank_agg = rank_agg.drop(columns=["pips_sq_sum_total"])
+    else:
+        print(
+            "s8: pips_sq_sum_total not in monthly_all.csv (rerun s7), skip rank_by_tstat.csv",
+            flush=True,
+        )
 
     rank_avg = rank_agg.sort_values("pips_avg_per_entry", ascending=False).reset_index(
         drop=True
@@ -307,6 +350,8 @@ def run(args: argparse.Namespace | None = None) -> None:
     if not as_of_str:
         rank_avg.to_csv(rank_root / "rank_by_pips_avg.csv")
         rank_sum.to_csv(rank_root / "rank_by_pips_sum.csv")
+        if rank_tstat is not None:
+            rank_tstat.to_csv(rank_root / "rank_by_tstat.csv")
         banned_dd[
             [
                 "id",
@@ -328,6 +373,13 @@ def run(args: argparse.Namespace | None = None) -> None:
             print(f"s8: snapshot saved → {snapshot_path}", flush=True)
         else:
             print(f"s8: snapshot already exists, skip → {snapshot_path}", flush=True)
+        if rank_tstat is not None:
+            tstat_path = snapshot_dir / "rank_by_tstat.csv"
+            if not tstat_path.exists():
+                rank_tstat.to_csv(tstat_path)
+                print(f"s8: snapshot saved → {tstat_path}", flush=True)
+            else:
+                print(f"s8: snapshot already exists, skip → {tstat_path}", flush=True)
 
     print(f"s8 done: wrote to rank/all/", flush=True)
 
