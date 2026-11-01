@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+import yaml
 
 import core.s8_strategy_rank as s8
 
@@ -111,3 +112,75 @@ def test_run_as_of_writes_snapshot_not_latest_rank(monkeypatch, tmp_path):
     assert not (rank_root / "rank_by_pips_avg.csv").exists()  # as-of runs do not touch latest rank
     snap = rank_root / "snapshots" / "2025-12" / "rank_by_pips_avg.csv"
     assert snap.exists()
+
+
+def _good_rows(slug, year=2025):
+    return [{
+        "year": year, "month": m, "session": "all", "id": "rsi_zone", "slug": slug,
+        "entries_total": 20, "bars5m_total": 1000, "entry_rate": 0.02,
+        "pips_sum_total": 10.0, "pips_avg_per_entry": 0.5,
+    } for m in range(1, 13)]
+
+
+def _s8_args(as_of=None):
+    return s8.argparse.Namespace(
+        rank_months=999, rf_min=0.0, recovery_months_max=999.0, min_sig_per_hour=0.0, as_of=as_of
+    )
+
+
+def _write_ban(path, slugs):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.dump({"entries": [{"id": "rsi_zone", "slug": s} for s in slugs]}))
+
+
+def test_run_without_as_of_excludes_latest_ban_file(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    monkeypatch.delenv("S8_AS_OF", raising=False)
+    _write_monthly_csv(tmp_path / "summary", 2025, _good_rows("keep") + _good_rows("drop"))
+    _write_ban(tmp_path / "ban" / "entry_ban_all_20250101_0000.yaml", ["keep"])  # 古い方は無視される
+    _write_ban(tmp_path / "ban" / "entry_ban_all_20260101_0000.yaml", ["drop"])
+    _write_ban(tmp_path / "ban" / "asof" / "2025-12" / "entry_ban_all.yaml", ["keep"])  # asof/ は拾わない
+
+    s8.run(_s8_args())
+
+    rank_avg = pd.read_csv(tmp_path / "rank" / "all" / "rank_by_pips_avg.csv")
+    assert list(rank_avg["slug"]) == ["keep"]
+    assert "ban excluded=1" in capsys.readouterr().out
+
+
+def test_run_as_of_reads_only_that_months_ban_file(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    _write_monthly_csv(tmp_path / "summary", 2025, _good_rows("a") + _good_rows("b"))
+    _write_ban(tmp_path / "ban" / "asof" / "2025-12" / "entry_ban_all.yaml", ["a"])
+    _write_ban(tmp_path / "ban" / "asof" / "2025-11" / "entry_ban_all.yaml", ["b"])
+    _write_ban(tmp_path / "ban" / "entry_ban_all_20260101_0000.yaml", ["b"])
+
+    s8.run(_s8_args(as_of="2025-12"))
+
+    snap = pd.read_csv(tmp_path / "rank" / "all" / "snapshots" / "2025-12" / "rank_by_pips_avg.csv")
+    assert list(snap["slug"]) == ["b"]
+    assert "ban excluded=1" in capsys.readouterr().out
+
+
+def test_run_without_ban_file_excludes_nobody_and_says_so(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    _write_monthly_csv(tmp_path / "summary", 2025, _good_rows("a") + _good_rows("b"))
+    # as-of 月の Ban ファイルが無ければ、最新の Ban があっても使わない
+    _write_ban(tmp_path / "ban" / "entry_ban_all_20260101_0000.yaml", ["a"])
+
+    s8.run(_s8_args(as_of="2025-12"))
+
+    snap = pd.read_csv(tmp_path / "rank" / "all" / "snapshots" / "2025-12" / "rank_by_pips_avg.csv")
+    assert sorted(snap["slug"]) == ["a", "b"]
+    assert "no ban file found" in capsys.readouterr().out
+
+
+def test_run_all_candidates_banned_yields_empty_rank(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    monkeypatch.delenv("S8_AS_OF", raising=False)
+    _write_monthly_csv(tmp_path / "summary", 2025, _good_rows("a"))
+    _write_ban(tmp_path / "ban" / "entry_ban_all_20260101_0000.yaml", ["a"])
+
+    s8.run(_s8_args())
+
+    assert pd.read_csv(tmp_path / "rank" / "all" / "rank_by_pips_avg.csv").empty

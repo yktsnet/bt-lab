@@ -1,7 +1,8 @@
 """
 s_monthly_backfill.py — Monthly backfill oneshot
 
-過去12ヶ月分のS8 snapshot生成 → s_monthly_sim を順番に実行する。
+過去12ヶ月分の Ban 判定（s4 as-of）→ S8 snapshot生成 → s_monthly_sim を順番に実行する。
+各月の Ban はその月末までのデータだけで作る。
 一度実行すれば冪等（既存snapshotとmonthly/は上書きしない）。
 
 実行:
@@ -17,12 +18,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 PYTHON = sys.executable
+S4 = str(Path(__file__).parent / "s4_ban_build.py")
 S8 = str(Path(__file__).parent / "s8_strategy_rank.py")
 SIM = str(Path(__file__).parent / "s_monthly_sim.py")
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="過去N ヶ月分のS8 snapshot生成 → s_monthly_sim を順番に実行")
+    p = argparse.ArgumentParser(description="過去N ヶ月分のBan判定(s4) → S8 snapshot生成 → s_monthly_sim を順番に実行")
     p.add_argument("--months", type=int, default=12, help="backfillする月数 (default: 12)")
     return p.parse_args()
 
@@ -56,7 +58,14 @@ def run(args: argparse.Namespace | None = None) -> None:
     print(f"backfill: {snapshot_months[0]} → {snapshot_months[-1]}", flush=True)
 
     for snap_month in snapshot_months:
-        # Step1: S8 as-of実行（snapshot生成）
+        # Step1: その月末までのデータだけでBanを判定する（先読みを避ける）
+        print(f"\n[S4] as-of={snap_month}", flush=True)
+        r = subprocess.run([PYTHON, S4, "--as-of", snap_month])
+        if r.returncode != 0:
+            print(f"S4 failed for {snap_month}, abort", flush=True)
+            sys.exit(1)
+
+        # Step2: S8 as-of実行（Ban適用 + snapshot生成）
         print(f"\n[S8] as-of={snap_month}", flush=True)
         r = subprocess.run(
             [PYTHON, S8],
@@ -66,7 +75,7 @@ def run(args: argparse.Namespace | None = None) -> None:
             print(f"S8 failed for {snap_month}, abort", flush=True)
             sys.exit(1)
 
-        # Step2: 翌月のsim実行
+        # Step3: 翌月のsim実行
         y, mo = int(snap_month[:4]), int(snap_month[5:7])
         mo += 1
         if mo == 13:

@@ -218,3 +218,86 @@ def test_run_write_failure_leaves_existing_ban_output_untouched(monkeypatch, tmp
 
     assert existing.read_text() == "previous: content\n"
     assert [f.name for f in ban_dir.glob("entry_ban_all_*.yaml") if f != existing] == []
+
+
+def _setup_two_months(tmp_path, jan_entries, feb_entries):
+    """1月・2月それぞれ100バーの parquet と、slug 'x' の positions を作る。"""
+    for month, start in ((1, "2026-01-05"), (2, "2026-02-02")):
+        d = tmp_path / "parquet_data" / "year=2026"
+        d.mkdir(parents=True, exist_ok=True)
+        times = pd.date_range(start, periods=100, freq="5min", tz="UTC")
+        pd.DataFrame({"time_utc": times}).to_parquet(d / f"{month:02d}.parquet", index=False)
+    positions_root = tmp_path / "positions"
+    if jan_entries is not None:
+        _write_positions(positions_root, "rsi_zone", "x", 2026, 1, jan_entries)
+    if feb_entries is not None:
+        _write_positions(positions_root, "rsi_zone", "x", 2026, 2, feb_entries)
+
+
+def test_list_recent_parquet_as_of_drops_later_months(tmp_path):
+    for y, m in ((2025, 12), (2026, 1), (2026, 2)):
+        d = tmp_path / f"year={y}"
+        d.mkdir(exist_ok=True)
+        (d / f"{m:02d}.parquet").write_bytes(b"")
+    got = s4._list_recent_parquet(tmp_path, 3, "2026-01")
+    assert [s4._parse_year_month(f) for f in got] == [(2025, 12), (2026, 1)]
+    got = s4._list_recent_parquet(tmp_path, 1, "2026-01")
+    assert [s4._parse_year_month(f) for f in got] == [(2026, 1)]
+
+
+def test_run_as_of_ignores_positions_after_as_of(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    # 1月は健全なエントリー率、2月はエントリーが無い（as-of を外すと low_rate になる）
+    jan = pd.date_range("2026-01-05", periods=30, freq="10min", tz="UTC")
+    _setup_two_months(tmp_path, jan, None)
+    _write_positions(tmp_path / "positions", "rsi_zone", "x", 2026, 2, ["2026-02-02T23:00:00Z"])
+
+    s4.run(months=2, min_rate=0.05, max_rate=0.9, jaccard_thr=0.99, dry_run=False, as_of="2026-01")
+
+    out = tmp_path / "ban" / "asof" / "2026-01" / "entry_ban_all.yaml"
+    doc = yaml.safe_load(out.read_text())
+    assert doc["as_of"] == "2026-01"
+    assert doc["entries"] == []
+    assert list((tmp_path / "ban").glob("entry_ban_all_*.yaml")) == []
+
+    # as-of 無しなら2月も判定に入り、率が下がって low_rate になる
+    s4.run(months=2, min_rate=0.2, max_rate=0.9, jaccard_thr=0.99, dry_run=False)
+    doc = yaml.safe_load(next((tmp_path / "ban").glob("entry_ban_all_*.yaml")).read_text())
+    assert {e["slug"]: e["reason"] for e in doc["entries"]} == {"x": "low_rate"}
+    assert "as_of" not in doc
+
+
+def test_run_as_of_rerun_overwrites_same_file(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    jan = pd.date_range("2026-01-05", periods=30, freq="10min", tz="UTC")
+    _setup_two_months(tmp_path, jan, None)
+
+    s4.run(months=1, min_rate=0.05, max_rate=0.9, jaccard_thr=0.99, dry_run=False, as_of="2026-01")
+    out = tmp_path / "ban" / "asof" / "2026-01" / "entry_ban_all.yaml"
+    assert yaml.safe_load(out.read_text())["entries"] == []
+
+    # 閾値を変えて同じ as-of で再実行すると、同じパスが新しい内容で置き換わる
+    s4.run(months=1, min_rate=0.9, max_rate=0.95, jaccard_thr=0.99, dry_run=False, as_of="2026-01")
+    assert [p for p in out.parent.iterdir()] == [out]
+    assert [e["reason"] for e in yaml.safe_load(out.read_text())["entries"]] == ["low_rate"]
+
+
+def test_run_as_of_write_failure_leaves_existing_output_untouched(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    jan = pd.date_range("2026-01-05", periods=30, freq="10min", tz="UTC")
+    _setup_two_months(tmp_path, jan, None)
+    out = tmp_path / "ban" / "asof" / "2026-01" / "entry_ban_all.yaml"
+    out.parent.mkdir(parents=True)
+    out.write_text("previous: content\n")
+
+    monkeypatch.setattr(s4.yaml, "dump", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+    with pytest.raises(OSError):
+        s4.run(months=1, min_rate=0.05, max_rate=0.9, jaccard_thr=0.99, dry_run=False, as_of="2026-01")
+
+    assert out.read_text() == "previous: content\n"
+
+
+def test_run_as_of_rejects_malformed_value(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    with pytest.raises(ValueError):
+        s4.run(months=1, min_rate=0.05, max_rate=0.9, jaccard_thr=0.99, dry_run=False, as_of="2026-1")
