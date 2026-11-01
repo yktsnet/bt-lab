@@ -125,9 +125,9 @@ def _pips_tstat(n: pd.Series, total: pd.Series, sq_total: pd.Series) -> pd.Serie
     n = n.astype(float)
     mean = total / n
     var = (sq_total - total * total / n) / (n - 1)
-    # 全エントリーが同値のとき、桁落ちで残る微小な正の分散を 0 とみなす
+    # 全エントリーが同値のとき、桁落ちで残る微小な正の分散（倍精度の誤差の桁）を 0 とみなす
     scale = (sq_total / n).clip(lower=1.0)
-    var = var.where((n >= 2) & (var > 1e-9 * scale))
+    var = var.where((n >= 2) & (var > 1e-12 * scale))
     return mean / (var**0.5 / n**0.5)
 
 

@@ -225,6 +225,21 @@ def test_pips_tstat_is_nan_for_single_entry_or_zero_deviation():
     assert t.isna().all()
 
 
+def test_pips_tstat_keeps_small_but_nonzero_deviation_and_nans_float_noise():
+    # 100, 100.001, 100.002: 分散は 1e-6。平均 100.001、SE = 0.001/sqrt(3)
+    t = s8._pips_tstat(
+        pd.Series([3.0]),
+        pd.Series([300.003]),
+        pd.Series([100.0**2 + 100.001**2 + 100.002**2]),
+    )
+    assert t.iloc[0] == pytest.approx(100.001 / (0.001 / 3**0.5), rel=1e-3)
+    # 0.1 を3回: 2乗和・合計が浮動小数点で割り切れず、分散が 1e-18 程度の正になる
+    noise = s8._pips_tstat(
+        pd.Series([3.0]), pd.Series([0.1 + 0.1 + 0.1]), pd.Series([0.1**2 * 3])
+    )
+    assert noise.isna().all()
+
+
 def test_run_writes_rank_by_tstat_sorted_desc_with_nan_last(monkeypatch, tmp_path):
     monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
     monkeypatch.delenv("S8_AS_OF", raising=False)
@@ -312,3 +327,26 @@ def test_run_without_pips_sq_sum_total_skips_tstat_snapshot(monkeypatch, tmp_pat
     snap_dir = tmp_path / "rank" / "all" / "snapshots" / "2025-12"
     assert (snap_dir / "rank_by_pips_avg.csv").exists()
     assert not (snap_dir / "rank_by_tstat.csv").exists()
+
+
+def test_run_min_sig_per_hour_applies_to_tstat_rank_too(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    monkeypatch.delenv("S8_AS_OF", raising=False)
+    # 同じ標本で bars だけ違う: often は signals/hour が 0.5 以上、rare は未満
+    often = _sq_rows("often", [[1, 2], [3, 4]])
+    rare = _sq_rows("rare", [[1, 2], [3, 4]])
+    for r in often:
+        r["bars5m_total"] = 10
+    for r in rare:
+        r["bars5m_total"] = 1_000_000
+    _write_monthly_csv(tmp_path / "summary", 2025, often + rare)
+    args = s8.argparse.Namespace(
+        rank_months=999, rf_min=0.0, recovery_months_max=999.0, min_sig_per_hour=0.5, as_of=None
+    )
+
+    s8.run(args)
+
+    rank_root = tmp_path / "rank" / "all"
+    tstat = pd.read_csv(rank_root / "rank_by_tstat.csv")
+    avg = pd.read_csv(rank_root / "rank_by_pips_avg.csv")
+    assert list(tstat["slug"]) == list(avg["slug"]) == ["often"]
