@@ -1,3 +1,36 @@
+## PR記録: feat: s8 にエントリー数を考慮した順位（t値）を足し、順位基準の記述を実装に合わせる
+issue: 02 (02_rank-tstat.md)
+PR: https://github.com/yktsnet/drip-sim/pull/15
+
+## 変更内容
+- s7: 月次・四半期・年次CSVに `pips_sq_sum_total`（各クローズの `pips_net` の2乗の合計）を追加。丸めず、四半期・年次は月次の合計で出す
+- s8: 直近 `rank_months` の集計から、候補ごとに `pips_tstat` = 平均 ÷ (不偏標準偏差 / √n) を計算し、`rank_by_tstat.csv`（`rank_by_pips_avg.csv` と同じ列 + `pips_tstat`）を `pips_tstat` の降順で書く
+  - n < 2、または分散が「2乗平均と1のうち大きいほう」の 1e-12 倍以下（標準偏差 0 と倍精度の誤差）の候補は `pips_tstat` が NaN で末尾
+  - as-of 指定時はスナップショットにも書く（既存があれば書かない）
+  - 月次CSVに `pips_sq_sum_total` が無ければ `rank_by_tstat.csv` を書かずに表示し、ほかの出力は従来どおり
+- README.md / README.en.md / design-decisions.md: 「Recovery Factor 基準で並べる」を、RF と回復月数で足切りし、残りを平均pipsと t値で並べる、に修正
+- 既存の `rank_by_pips_avg.csv` / `rank_by_pips_sum.csv` の並びと列は変えていない
+
+## 保証
+- `pips_sq_sum_total` → test_s7_position_summary.py の `..._correct_aggregates`・`..._pips_sq_sum_total_is_not_rounded_and_sums_across_months`
+- t値の計算・NaN・閾値 → test_s8_strategy_rank.py の `test_pips_tstat_*`
+- 降順・NaN 末尾・対象集合が avg と同じ・as-of スナップショット・列が無いときの扱い → test_s8_strategy_rank.py の `test_run_*tstat*`・`test_run_min_sig_per_hour_applies_to_tstat_rank_too`・`test_run_without_pips_sq_sum_total_*`
+- 台帳 `docs/guarantees.md` §15・§16 を更新
+
+## 検証
+- `PYTHONPATH=. pytest -q`: 211 passed
+- 合成データで `bt.py all` が通り `rank/all/rank_by_tstat.csv` ができる。`s8 --as-of` で `snapshots/<as_of>/` に avg と tstat の両方ができる（合成データは足切りで候補0件のため中身は空。中身はユニットテストで確認）
+
+## 確認者の判定
+| 項目 | 判定 |
+|---|---|
+| `PYTHONPATH=. pytest -q` が全件通る | 合 |
+| 合成データで `bt.py all` が通り `rank_by_tstat.csv` ができる | 合 |
+| `--as-of` で avg と tstat の両方のスナップショットができる | 合 |
+| 保証（s7 の2乗和 / t値 / 対象集合 / as-of / 列が無いとき / 維持する保証 / 台帳） | 全項目 合 |
+
+---
+
 ## s8 にエントリー数を考慮した順位（t値）を足し、順位基準の記述を実装に合わせる
 id: 02
 branch-slug: rank-tstat
