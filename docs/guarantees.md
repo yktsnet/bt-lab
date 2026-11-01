@@ -338,6 +338,7 @@
 - `_bars_in_window(path)` はEOD境界（UTC 17:00）より前のバー数を数える
 - `run()` は `pos_events/` が存在しない場合、「pos_events/ not found」を含むメッセージを表示する
 - `run()` は月次・四半期・年次のCSVを生成し、`entries_total`（open以外の件数）・`pips_sum_total`（`pips_net`合計）・`pips_avg_per_entry`（1件あたり平均）・`bars5m_total`（EOD前バー数）・`entry_rate`（`entries_total`/`bars5m_total`）を正しく集計する
+- `run()` は月次・四半期・年次のCSVに `pips_sq_sum_total`（そのグループの各クローズの `pips_net` の2乗の合計）を書く。値は丸めず、四半期・年次は月次の合計になる
 - `run()` は `type` 列が無い、またはクローズ行が無いファイルをスキップし、「no records found」を含むメッセージを表示する
 
 | 保証（要約） | 対応テスト |
@@ -349,9 +350,10 @@
 | EOD前バー数の集計 | `test_bars_in_window_counts_hours_before_eod` |
 | pos_events/無しのメッセージ | `test_run_no_pos_events_prints_message` |
 | 月次/四半期/年次の集計値 | `test_run_produces_monthly_quarterly_yearly_csv_with_correct_aggregates` |
+| `pips_sq_sum_total` を丸めずに月次・四半期・年次へ集計 | `test_run_produces_monthly_quarterly_yearly_csv_with_correct_aggregates`・`test_run_pips_sq_sum_total_is_not_rounded_and_sums_across_months` |
 | 不正ファイルのスキップ | `test_run_skips_files_without_type_column_or_empty_close` |
 
-### 16. `tests/test_s8_strategy_rank.py` — core/s8_strategy_rank.py (_dd_metrics / run)
+### 16. `tests/test_s8_strategy_rank.py` — core/s8_strategy_rank.py (_dd_metrics / _pips_tstat / run)
 
 - `_dd_metrics(pips)` は累積損益の推移からピークとの差（絶対ドローダウン `abs_dd`）を計算する
 - `_dd_metrics(pips)` は `recovery_factor`（総利益 / `abs_dd`）を計算し、ドローダウンが無い場合は無限大を返す
@@ -362,6 +364,11 @@
 - `run(args, as_of=...)` を指定すると `rank/all/rank_by_pips_avg.csv`（最新ランク）を変更せず、`rank/all/snapshots/<as_of>/` 配下にのみ結果を書き出す
 - `run(args)` はas-ofが無ければ `ban/` の最新の `entry_ban_all_*.yaml`（`ban/asof/` 配下は対象外）を読み、Banされた候補をDDフィルタ・ランキングの対象から外して、外した件数を表示する
 - `run(args, as_of=...)` はas-of指定時に `ban/asof/<as_of>/entry_ban_all.yaml` だけを読み、Banされた候補を対象から外す。その月のBanファイルが無ければ、最新のBanがあっても使わず、どの候補も外さない
+- `_pips_tstat(n, total, sq_total)` は `pips_tstat` = 平均 ÷ (不偏標準偏差 / √n) を計算し、n < 2 または標準偏差 0 のときは NaN を返す。分散が「2乗平均と1のうち大きいほう」の 1e-12 倍以下のときは、倍精度の誤差とみなして標準偏差 0 と同じく NaN を返す
+- `run(args)` は直近 `rank_months` の集計から候補ごとの `pips_tstat` を計算し、`rank_by_tstat.csv` に `pips_tstat` の降順で書く。NaN の候補は末尾に置く
+- `rank_by_tstat.csv` の対象集合（Ban・DDフィルタ・`min_sig_per_hour` を通った候補）は `rank_by_pips_avg.csv` と同じで、列は `rank_by_pips_avg.csv` に `pips_tstat` を足したものになる。`rank_by_pips_avg.csv` の並びと列は変わらない
+- `run(args, as_of=...)` はas-of指定時、`rank_by_tstat.csv` も `rank/all/snapshots/<as_of>/` に書く。そこに `rank_by_tstat.csv` が既にあれば上書きしない
+- `run(args)` は月次CSVに `pips_sq_sum_total` が無ければ、`rank_by_tstat.csv`（スナップショット含む）を書かずにその旨を表示し、ほかの出力は従来どおり書く
 - `run(args)` はBanファイルが無ければどの候補も外さず、「no ban file found」を含むメッセージを表示する
 - `run(args)` は全候補がBanされてもエラーにならず、空のランキングを書く
 
@@ -378,6 +385,13 @@
 | as-ofありはその月のBanだけを適用 | `test_run_as_of_reads_only_that_months_ban_file` |
 | Banファイル無しはどの候補も外さない | `test_run_without_ban_file_excludes_nobody_and_says_so` |
 | 全候補Banでも空ランキング | `test_run_all_candidates_banned_yields_empty_rank` |
+| t値の計算 | `test_pips_tstat_hand_calculated` |
+| n<2・標準偏差0はNaN | `test_pips_tstat_is_nan_for_single_entry_or_zero_deviation` |
+| 分散が2乗平均の1e-12倍以下ならNaN、それより大きければt値を計算 | `test_pips_tstat_keeps_small_but_nonzero_deviation_and_nans_float_noise`・`test_pips_tstat_nan_threshold_is_1e12_of_max_mean_square_and_one` |
+| t値の降順・NaNは末尾・列と既存順位の維持 | `test_run_writes_rank_by_tstat_sorted_desc_with_nan_last` |
+| t値の対象集合は `rank_by_pips_avg.csv` と同じ | `test_run_tstat_uses_same_candidate_set_after_filters`・`test_run_min_sig_per_hour_applies_to_tstat_rank_too` |
+| as-ofはt値もsnapshotに書く（既存は上書きしない） | `test_run_as_of_writes_tstat_snapshot_and_keeps_existing_one` |
+| 列が無ければt値を書かず他は書く | `test_run_without_pips_sq_sum_total_skips_tstat_but_writes_other_outputs`・`test_run_without_pips_sq_sum_total_skips_tstat_snapshot` |
 
 ### 17. `tests/test_s_monthly_sim.py` — core/s_monthly_sim.py (_hm / trading_days_in_month / _target_months / _load_strategies_from_snapshot / _build_positions / run)
 
