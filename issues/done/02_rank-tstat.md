@@ -1,7 +1,7 @@
 ## s8 にエントリー数を考慮した順位（t値）を足し、順位基準の記述を実装に合わせる
 id: 02
 branch-slug: rank-tstat
-status: open
+status: close
 depends: 01
 type: feat
 対象: core/s7_position_summary.py, core/s8_strategy_rank.py, tests/test_s7_position_summary.py, tests/test_s8_strategy_rank.py, docs/guarantees.md, README.md, README.en.md, docs/design-decisions.md
