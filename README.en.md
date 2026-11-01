@@ -33,6 +33,7 @@ python3 bt.py s5 --tp-pips 40 --sl-pips 15   # TP/SL/EOD resolution
 python3 bt.py s6                     # aggregate pips
 python3 bt.py s7                     # monthly / quarterly / yearly summary
 python3 bt.py s8 --rank-months 6 --rf-min 2.5   # ranking
+python3 bt.py eval --until 2026-06   # score next-month results of each selection (after `monthly-backfill`; not part of `all`)
 python3 bt.py all                    # run S1b–S8 straight through
 python3 bt.py flow                   # interactive phase-by-phase runner
 ```
@@ -53,6 +54,8 @@ For interactive human use, there's `zsh/bt.sh`. Add `source /path/to/drip-sim/zs
 Same 4-way split as the phases in `bt.py flow`'s interactive menu (the `PHASES` definition in `bt.py`).
 
 `bt.py` is the single entry point wiring the 8 stages above (S1b–S8). Each stage can also be run directly as an independent CLI via `core/<stage>.py`. `strategies_md/` is the single source of truth for strategy specs: `s2` reads each kind's `template.py` and expands `PARAMS_GRID` into individual strategy files (convention documented in [strategies_md/HOWTO.md](strategies_md/HOWTO.md)).
+
+Outside the pipeline, `bt.py eval` (`core/s_selection_eval.py`) measures whether s8's selection predicts the following month. For each month-end snapshot left by `monthly-backfill`, it compares the next month's `pips_sum_total` of the selected candidates against all candidates and writes `rank/all/eval/selection_eval.csv`.
 
 ## Tech Stack
 

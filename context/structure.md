@@ -19,7 +19,8 @@ drip-sim/
 │   ├── s7_position_summary.py     # 月次・四半期・年次サマリー
 │   ├── s8_strategy_rank.py        # DDフィルタ + 直近N月ランキング
 │   ├── s_monthly_sim.py           # 単月シミュレーション
-│   └── s_monthly_backfill.py      # 複数月の月次シムをバックフィル
+│   ├── s_monthly_backfill.py      # 複数月の月次シムをバックフィル
+│   └── s_selection_eval.py        # 選抜の翌月成績を月ごとに集計（bt eval、bt allには含めない）
 ├── lib/                          # 共有ライブラリ
 │   ├── env_paths.py                # DRIP_SIM_DATA等のパス解決。ハードコード禁止の唯一の情報源
 │   ├── features.py                 # 素材特徴量計算（RSI/EMA/ATR/Bollinger等の純関数群）

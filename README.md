@@ -33,6 +33,7 @@ python3 bt.py s5 --tp-pips 40 --sl-pips 15   # TP/SL/EOD判定
 python3 bt.py s6                     # pips集計
 python3 bt.py s7                     # 月次・四半期・年次サマリー
 python3 bt.py s8 --rank-months 6 --rf-min 2.5   # ランキング
+python3 bt.py eval --until 2026-06   # 選抜の翌月成績を月ごとに集計（`monthly-backfill`の後。`all`には含まれない）
 python3 bt.py all                    # S1b〜S8を通しで実行
 python3 bt.py flow                   # 対話形式でフェーズを選んで実行
 ```
@@ -53,6 +54,8 @@ AI/スクリプトからの非対話実行には`bin/bt <stage> [args]`（シェ
 `bt.py flow`の対話メニューが選ぶ4フェーズと同じ区切り(`bt.py`の`PHASES`定義)。
 
 `bt.py`が上記8段(S1b〜S8)を配線する単一エントリーポイント。各段は独立したCLIとしても`core/<stage>.py`から直接実行できる。`strategies_md/`が戦略仕様の唯一の正しいソースで、`s2`がkind単位の`template.py`を読み込み`PARAMS_GRID`を直積展開して個別戦略ファイルを生成する（規約は[strategies_md/HOWTO.md](strategies_md/HOWTO.md)）。
+
+パイプラインの外に、s8の選抜が翌月の成績を当てているかを測る`bt.py eval`（`core/s_selection_eval.py`）がある。`monthly-backfill`が残した月末スナップショットごとに、選ばれた候補の翌月の`pips_sum_total`を全候補と比べ、`rank/all/eval/selection_eval.csv`に書く。
 
 ## Tech Stack
 
