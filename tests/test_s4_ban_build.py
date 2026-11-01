@@ -252,7 +252,8 @@ def test_run_as_of_ignores_positions_after_as_of(monkeypatch, tmp_path):
     _setup_two_months(tmp_path, jan, None)
     _write_positions(tmp_path / "positions", "rsi_zone", "x", 2026, 2, ["2026-02-02T23:00:00Z"])
 
-    s4.run(months=2, min_rate=0.05, max_rate=0.9, jaccard_thr=0.99, dry_run=False, as_of="2026-01")
+    # 1月だけなら率 0.3 で通り、2月が混ざると (30+1)/200=0.155 で min_rate=0.2 を下回る
+    s4.run(months=2, min_rate=0.2, max_rate=0.9, jaccard_thr=0.99, dry_run=False, as_of="2026-01")
 
     out = tmp_path / "ban" / "asof" / "2026-01" / "entry_ban_all.yaml"
     doc = yaml.safe_load(out.read_text())
