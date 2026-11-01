@@ -1,7 +1,7 @@
 ## Ban の判定を as-of 時点のデータに限り、適用を s8 に移す
 id: 01
 branch-slug: ban-as-of
-status: open
+status: close
 type: fix
 対象: core/s3_calc_positions.py, core/s4_ban_build.py, core/s8_strategy_rank.py, core/s_monthly_backfill.py, tests/test_s3_calc_positions.py, tests/test_s4_ban_build.py, tests/test_s8_strategy_rank.py, tests/test_s_monthly_backfill.py, docs/guarantees.md
 内容: いまは s4 が直近N月で作った Ban を s3 が最新ファイルとして自動で拾い、全期間の候補から消している。backfill で過去月のスナップショットを作るときにも未来の月で決めた Ban が効き、選抜手順のウォークフォワード評価が先読みで汚れる。Ban を「その月末時点までのデータだけで作り、選抜の時点（s8）で適用する」形に変え、backfill の各月が当時知り得た情報だけで選ばれるようにする。
