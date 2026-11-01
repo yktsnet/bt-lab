@@ -18,6 +18,7 @@
   bt s8 --rank-months 6 --rf-min 2.5
   bt monthly --month 2026-06
   bt monthly-backfill --months 6
+  bt eval --top 10 --until 2026-06   # 選抜の翌月成績を集計（PIPELINE_ORDER外）
   bt all                    # S1b〜S8を順に実行（env var設定のみ、引数転送なし）
   bt flow                   # 対話形式でフェーズを選んで実行（英語プロンプト）
 
@@ -48,6 +49,7 @@ STAGES = {
     "s8": "s8_strategy_rank.py",
     "monthly": "s_monthly_sim.py",
     "monthly-backfill": "s_monthly_backfill.py",
+    "eval": "s_selection_eval.py",
 }
 
 PIPELINE_ORDER = ["s1b", "s1c", "s2", "s3", "s4", "s5", "s6", "s7", "s8"]

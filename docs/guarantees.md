@@ -442,6 +442,7 @@
 - `STAGES` に登録された各サブコマンドは、対応する `core/` 配下のスクリプトファイルが実在する
 - `PIPELINE_ORDER` は `["s1b","s1c","s2","s3","s4","s5","s6","s7","s8"]` の順で固定され、`STAGES` の部分集合になっている
 - `PHASES`（`bt flow` のフェーズ分割）は `PIPELINE_ORDER` の各段を過不足なく分割する
+- `STAGES` の `eval` は `s_selection_eval.py` を指し、`PIPELINE_ORDER`・`PHASES` には入らない（`bt all` では実行されない）
 - 引数無しで実行すると終了コード `0` で使い方（`"stages:"`を含む）を表示する
 - 未知のサブコマンドを指定すると終了コード `2` で「unknown stage」を含むエラーを表示する
 - `bt all` に追加引数を渡すと、転送されない旨のエラーとともに終了コード `2` を返す
@@ -474,6 +475,7 @@
 | STAGESのスクリプト実在性 | `test_stage_scripts_exist` |
 | PIPELINE_ORDERの固定 | `test_pipeline_order_is_s1b_through_s8` |
 | PHASESの網羅性 | `test_phases_cover_pipeline_order_exactly` |
+| evalの登録とPIPELINE_ORDER外 | `tests/test_s_selection_eval.py::test_eval_stage_is_registered_but_outside_pipeline_order` |
 | 引数無しはヘルプ表示 | `test_no_args_prints_help_and_exits_0` |
 | 未知サブコマンドはexit 2 | `test_unknown_stage_exits_2` |
 | all + 追加引数はexit 2 | `test_all_rejects_extra_args` |
@@ -502,6 +504,38 @@
 | fzf空選択 | `test_fzf_select_returns_none_on_empty_choice` |
 
 *（区切り内に多数の関数が混在するため、行ごとに主語を明示する）*
+
+### 20. `tests/test_s_selection_eval.py` — core/s_selection_eval.py (_next_month / _month_arg / _spearman / run)
+
+- `run(args)` は `rank/all/snapshots/<M>/` の `rank_by_*.csv` ごとに、M+1 の月次データ（s7 の `monthly_all.csv`）がある月だけを集計し、1行 = (スナップショット月, 順位ファイル) で `snapshot`, `rank_file`, `n_universe`, `n_selected`, `univ_mean_pips`, `sel_mean_pips`, `sel_minus_univ`, `topk_mean_pips`, `topk_hit_rate`, `rank_corr` の列を `rank/all/eval/selection_eval.csv` に書く
+- 母集団（`n_universe`・`univ_mean_pips`）は M 以前の月次データに一度でも現れた候補。M+1 に行が無い候補は 0 pips として扱う
+- `sel_mean_pips` は順位ファイルの全行、`topk_mean_pips` は上位 K 行について、M+1 の `pips_sum_total` を候補ごとに取って平均した値。`--top K` で K を変えられる（既定 10）
+- `topk_hit_rate` は上位 K 行のうち M+1 の `pips_sum_total` が 0 より大きい行の割合
+- `rank_corr` は選ばれた候補の順位と M+1 の `pips_sum_total` の Spearman 相関で、順位が当たっている（順位が良いほど稼いだ）ほど正になる。対象が 3 件未満、または片方が定数のときは NaN
+- スナップショット月は `--from YYYY-MM` / `--until YYYY-MM` で範囲を絞れる。範囲外のスナップショットは読まない。形式が違う値は引数エラーになる
+- 順位ファイルごとに、集計した月数・`sel_minus_univ` の平均・`sel_minus_univ` > 0 の月の割合・`rank_corr` の平均を標準出力に表示する
+- 出力はatomic（`.tmp` に書いてから `os.replace`）。書き込みに失敗しても既存の出力は壊れない
+- スナップショット・月次データ・M+1 のデータが無いときは、その旨を表示して何も書かずに終了コード 0 で終わる
+
+| 保証（要約） | 対応テスト |
+|---|---|
+| 出力の列と手計算の値 | `test_hand_calculated_row` |
+| M+1 に行が無い候補は 0 pips | `test_universe_counts_missing_next_month_as_zero_pips` |
+| 母集団は M 以前に現れた候補だけ | `test_hand_calculated_row`（`n_universe` = 6、M+1 初出の候補を含まない） |
+| 上位Kのヒット率は 0 超だけ数える | `test_topk_hit_rate_counts_only_strictly_positive` |
+| `--top` で上位件数を変える・既定は 10 | `test_top_changes_k`, `test_top_defaults_to_10` |
+| 順位が逆なら相関は負 | `test_rank_corr_is_negative_when_ranking_inverted` |
+| 3件未満は NaN | `test_rank_corr_nan_under_three_selected` |
+| 同順位・定数の Spearman | `test_spearman_handles_ties_and_constants` |
+| M+1 のデータが無い月は飛ばす | `test_snapshot_without_next_month_data_is_skipped` |
+| 全ての `rank_by_*.csv` を対象にする | `test_all_rank_files_in_snapshot_are_evaluated` |
+| 標準出力の要約 | `test_summary_printed_per_rank_file` |
+| `--from` / `--until` と範囲外は読まない | `test_from_until_limit_snapshot_range_and_do_not_read_outside` |
+| 月引数の形式検証・翌月の年またぎ | `test_month_arg_rejects_malformed`, `test_next_month_rolls_over_year` |
+| スナップショット無しは表示して終了 | `test_no_snapshots_prints_message_and_writes_nothing` |
+| 月次データ無しは表示して終了 | `test_no_monthly_data_prints_message_and_writes_nothing` |
+| M+1 が全て無いときは表示して終了 | `test_no_next_month_for_any_snapshot_prints_message` |
+| 書き込み失敗で既存出力を壊さない | `test_write_failure_leaves_existing_output_untouched` |
 
 ## About
 
