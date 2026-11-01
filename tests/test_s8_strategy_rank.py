@@ -240,6 +240,28 @@ def test_pips_tstat_keeps_small_but_nonzero_deviation_and_nans_float_noise():
     assert noise.isna().all()
 
 
+@pytest.mark.parametrize(
+    "mean, var, is_nan",
+    [
+        (100.0, 2e-8, False),  # 閾値 = 1e-12 * 2乗平均(≈1e4) = 1e-8
+        (100.0, 5e-9, True),
+        (0.0, 2e-12, False),  # 2乗平均が 1 未満なので下限 1 が効き、閾値は 1e-12
+        (0.0, 5e-13, True),
+        (0.01, 2e-12, False),
+        (0.01, 5e-13, True),
+    ],
+)
+def test_pips_tstat_nan_threshold_is_1e12_of_max_mean_square_and_one(mean, var, is_nan):
+    # n=2 の標本 mean±d は不偏分散が 2d^2
+    d = (var / 2) ** 0.5
+    t = s8._pips_tstat(
+        pd.Series([2.0]),
+        pd.Series([2 * mean]),
+        pd.Series([(mean - d) ** 2 + (mean + d) ** 2]),
+    )
+    assert bool(t.isna().iloc[0]) is is_nan
+
+
 def test_run_writes_rank_by_tstat_sorted_desc_with_nan_last(monkeypatch, tmp_path):
     monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
     monkeypatch.delenv("S8_AS_OF", raising=False)

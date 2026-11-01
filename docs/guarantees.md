@@ -387,7 +387,7 @@
 | 全候補Banでも空ランキング | `test_run_all_candidates_banned_yields_empty_rank` |
 | t値の計算 | `test_pips_tstat_hand_calculated` |
 | n<2・標準偏差0はNaN | `test_pips_tstat_is_nan_for_single_entry_or_zero_deviation` |
-| 分散が2乗平均の1e-12倍以下ならNaN、それより大きければt値を計算 | `test_pips_tstat_keeps_small_but_nonzero_deviation_and_nans_float_noise` |
+| 分散が2乗平均の1e-12倍以下ならNaN、それより大きければt値を計算 | `test_pips_tstat_keeps_small_but_nonzero_deviation_and_nans_float_noise`・`test_pips_tstat_nan_threshold_is_1e12_of_max_mean_square_and_one` |
 | t値の降順・NaNは末尾・列と既存順位の維持 | `test_run_writes_rank_by_tstat_sorted_desc_with_nan_last` |
 | t値の対象集合は `rank_by_pips_avg.csv` と同じ | `test_run_tstat_uses_same_candidate_set_after_filters`・`test_run_min_sig_per_hour_applies_to_tstat_rank_too` |
 | as-ofはt値もsnapshotに書く（既存は上書きしない） | `test_run_as_of_writes_tstat_snapshot_and_keeps_existing_one` |
