@@ -509,7 +509,7 @@
 | M+1 に行が無い候補は 0 pips | `test_universe_counts_missing_next_month_as_zero_pips` |
 | 母集団は M 以前に現れた候補だけ | `test_hand_calculated_row`（`n_universe` = 6、M+1 初出の候補を含まない） |
 | 上位Kのヒット率は 0 超だけ数える | `test_topk_hit_rate_counts_only_strictly_positive` |
-| `--top` で上位件数を変える | `test_top_changes_k` |
+| `--top` で上位件数を変える・既定は 10 | `test_top_changes_k`, `test_top_defaults_to_10` |
 | 順位が逆なら相関は負 | `test_rank_corr_is_negative_when_ranking_inverted` |
 | 3件未満は NaN | `test_rank_corr_nan_under_three_selected` |
 | 同順位・定数の Spearman | `test_spearman_handles_ties_and_constants` |

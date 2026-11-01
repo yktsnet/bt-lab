@@ -159,19 +159,28 @@ def test_summary_printed_per_rank_file(data, capsys):
 
 
 def test_from_until_limit_snapshot_range_and_do_not_read_outside(data):
-    _basic_monthly(data)
-    _write_rank(data, "2026-01", "rank_by_pips_avg", ["d", "a", "b"])
-    # 範囲外のスナップショットは読まれない（読めば EmptyDataError で落ちる）
-    bad = data / "rank" / "all" / "snapshots" / "2025-12"
-    bad.mkdir(parents=True)
-    (bad / "rank_by_pips_avg.csv").write_text("")
-    bad2 = data / "rank" / "all" / "snapshots" / "2026-06"
-    bad2.mkdir(parents=True)
-    (bad2 / "rank_by_pips_avg.csv").write_text("")
+    rows = [_m(2025, 12, s, 1.0) for s in "abcdef"]
+    rows += [_m(2026, 1, s, 1.0) for s in "abcdef"]
+    rows += [_m(2026, 2, "a", 10.0), _m(2026, 2, "b", -5.0), _m(2026, 3, "a", 1.0)]
+    _write_monthly(data, rows)
+    _write_rank(data, "2026-01", "rank_by_pips_avg", ["a", "b", "c"])
+    # 範囲外のスナップショットにも翌月のデータがある。範囲で絞らなければ読まれて
+    # EmptyDataError で落ちる（from 側は 2025-12、until 側は 2026-02）
+    for snap in ("2025-12", "2026-02"):
+        d = data / "rank" / "all" / "snapshots" / snap
+        d.mkdir(parents=True)
+        (d / "rank_by_pips_avg.csv").write_text("")
 
-    ev.run(_ns(from_month="2026-01", until_month="2026-02"))
+    ev.run(_ns(from_month="2026-01", until_month="2026-01"))
 
     assert list(_out(data)["snapshot"]) == ["2026-01"]
+
+
+def test_top_defaults_to_10(monkeypatch):
+    monkeypatch.setattr(ev.sys, "argv", ["s_selection_eval.py"])
+    args = ev.parse_args()
+    assert args.top == 10
+    assert args.from_month is None and args.until_month is None
 
 
 def test_top_changes_k(data):
