@@ -25,7 +25,6 @@ current_dir = Path(__file__).resolve().parent
 sys.path.append(str(current_dir.parent))
 
 from lib.env_paths import (
-    get_backtest_data_root,
     ensure_dirs,
     get_parquet_root,
     get_strategies_root,
@@ -36,7 +35,7 @@ from lib.session_util import decide_session
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="S3: 戦略をparquetに適用してエントリーを計算")
     p.add_argument("--months-limit", type=int, default=None, help="直近Nヶ月のみ処理 (env: S3_MONTHS_LIMIT, default: 全期間)")
-    p.add_argument("--ban-file", default=None, help="BanリストYAMLのパス (env: S3_BAN_FILE, default: ban/の最新ファイルを自動解決)")
+    p.add_argument("--ban-file", default=None, help="BanリストYAMLのパス (env: S3_BAN_FILE, default: Banなし)")
     p.add_argument("--jobs", default=None, help="並列度、数値または auto (env: ENTRY_JOBS, default: auto)")
     p.add_argument(
         "--entry-interval",
@@ -248,15 +247,6 @@ def run(args: argparse.Namespace | None = None) -> None:
 
     # Ban リスト
     ban_file = args.ban_file or os.environ.get("S3_BAN_FILE", "").strip()
-    # 未指定の場合はbanディレクトリの最新ALLファイルを自動解決
-    if not ban_file:
-        ban_dir = get_backtest_data_root() / "ban"
-        union_files = (
-            sorted(ban_dir.glob("entry_ban_all_*.yaml")) if ban_dir.exists() else []
-        )
-        if union_files:
-            ban_file = str(union_files[-1])
-            print(f"s3: auto-resolved ban file: {union_files[-1].name}", flush=True)
     ban_set = _load_ban_set(ban_file if ban_file else None)
 
     strategy_files = sorted(strategies_root.glob("*/*.py"))

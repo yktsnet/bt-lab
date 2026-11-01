@@ -186,3 +186,41 @@ def test_run_end_to_end_writes_positions(monkeypatch, tmp_path):
     assert out_path.exists()
     result = pd.read_parquet(out_path)
     assert (result["entry_flag"] == 1).all()
+
+
+def _setup_s3_run(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    monkeypatch.setenv("ENTRY_INTERVAL_MIN", "0")
+    monkeypatch.delenv("S3_BAN_FILE", raising=False)
+    monkeypatch.setattr(s3.concurrent.futures, "ProcessPoolExecutor", concurrent.futures.ThreadPoolExecutor)
+
+    parquet_root = tmp_path / "parquet_data"
+    (parquet_root / "year=2026").mkdir(parents=True)
+    _bars().to_parquet(parquet_root / "year=2026" / "01.parquet", index=False)
+
+    strategies_root = tmp_path / "strategies" / "rsi_zone"
+    strategies_root.mkdir(parents=True)
+    (strategies_root / "a20.py").write_text(STRATEGY_SRC)
+
+
+def test_run_does_not_auto_apply_latest_ban_file(monkeypatch, tmp_path):
+    _setup_s3_run(monkeypatch, tmp_path)
+    ban_dir = tmp_path / "ban"
+    ban_dir.mkdir()
+    (ban_dir / "entry_ban_all_20260101_0000.yaml").write_text(
+        yaml.dump({"entries": [{"id": "rsi_zone", "slug": "a20"}]})
+    )
+
+    s3.run(s3.argparse.Namespace(months_limit=None, ban_file=None, jobs="1", entry_interval=0))
+
+    assert (tmp_path / "positions" / "rsi_zone" / "a20" / "year=2026" / "01.parquet").exists()
+
+
+def test_run_applies_explicit_ban_file(monkeypatch, tmp_path):
+    _setup_s3_run(monkeypatch, tmp_path)
+    ban_path = tmp_path / "my_ban.yaml"
+    ban_path.write_text(yaml.dump({"entries": [{"id": "rsi_zone", "slug": "a20"}]}))
+
+    s3.run(s3.argparse.Namespace(months_limit=None, ban_file=str(ban_path), jobs="1", entry_interval=0))
+
+    assert not (tmp_path / "positions" / "rsi_zone" / "a20").exists()

@@ -219,6 +219,7 @@
 - `_process_strategy_month(...)` は出力ファイルが入力より新しい場合、再計算をスキップする（`False` を返す）
 - `_process_strategy_month(...)` は実在する `strategies_md/oscillator/rsi_zone/template.py` から生成された戦略ファイルに対しても、`apply_entry_flag` の3カラム契約（`entry_flag`/`buy_sell`/`trend_dir`、conventions.md記載）を満たす出力を書き込む
 - `run(args)` はban集合や`entry_interval`設定を反映しつつ、対象月・戦略ごとに `positions/<kind>/<slug>/year=<year>/<month>.parquet` を書き出す
+- `run(args)` は `ban/` にBanファイルがあっても自動では拾わない。`--ban-file` / `S3_BAN_FILE` で明示したときだけBanを適用する
 
 | 保証（要約） | 対応テスト |
 |---|---|
@@ -235,6 +236,8 @@
 | 出力が新しい場合はスキップ | `test_process_strategy_month_skips_when_output_is_fresh` |
 | 実物のrsi_zone templateの3カラム契約 | `test_process_strategy_month_honors_real_rsi_zone_template_contract` |
 | end-to-endでpositions/を生成 | `test_run_end_to_end_writes_positions` |
+| ban/ の最新ファイルを自動では適用しない | `test_run_does_not_auto_apply_latest_ban_file` |
+| 明示したBanファイルは適用する | `test_run_applies_explicit_ban_file` |
 
 ### 12. `tests/test_s4_ban_build.py` — core/s4_ban_build.py (_jaccard / _jaccard_dedup / _parse_year_month / _bars_in_window / run)
 
@@ -252,6 +255,11 @@
 - `run(...)` はparquetファイルが1つも無い場合、「no parquet files found」を含むメッセージを表示する
 - `run(...)` は `positions/` ディレクトリが無い場合、「positions/ not found」を含むメッセージを表示する
 - `run(...)` のban yaml書き込みは一時ファイル→`os.replace`の手順を踏むため、書き込み中に例外が起きても既存のban出力（実際の出力パス）は壊れた状態で残らない（atomic write契約, conventions.md）
+- `_list_recent_parquet(root, n, as_of)` は `as_of`（`YYYY-MM`）以前の月だけに絞ってから直近 `n` 件を返す
+- `run(..., as_of="YYYY-MM")` はその月以前の月次parquetから直近 `months` 件を選んでBanを判定し、as-ofより後の月のpositionsは判定に使わない。結果は `ban/asof/<YYYY-MM>/entry_ban_all.yaml` に書き、yamlに `as_of` を記録する
+- `run(..., as_of=...)` は同じas-ofで再実行すると同じパスを上書きする（冪等）。書き込みはatomicで、失敗しても既存の出力はそのまま残る
+- `run(..., as_of=...)` は `YYYY-MM` 形式でない値を `ValueError` で拒否する
+- `run(...)` は `as_of` 無しなら従来どおり `ban/entry_ban_all_<timestamp>.yaml` を書き、`as_of` は記録しない
 
 | 保証（要約） | 対応テスト |
 |---|---|
@@ -269,6 +277,11 @@
 | parquet無しのメッセージ | `test_run_no_parquet_files_prints_message` |
 | positions/無しのメッセージ | `test_run_no_positions_dir_prints_message` |
 | 書き込み失敗時の既存出力の保全 | `test_run_write_failure_leaves_existing_ban_output_untouched` |
+| as-ofでparquetを月で絞る | `test_list_recent_parquet_as_of_drops_later_months` |
+| as-ofより後のpositionsを判定に使わない・出力先と`as_of`記録・as-of無しは従来どおり | `test_run_as_of_ignores_positions_after_as_of` |
+| as-ofの再実行は上書き（冪等） | `test_run_as_of_rerun_overwrites_same_file` |
+| as-ofの書き込み失敗時の既存出力の保全 | `test_run_as_of_write_failure_leaves_existing_output_untouched` |
+| as-ofの形式検証 | `test_run_as_of_rejects_malformed_value` |
 
 ### 13. `tests/test_s5_position_engine.py` — core/s5_position_engine.py (_hm / _fv・_iv / _build_positions / _process_one / run)
 
@@ -347,6 +360,10 @@
 - `run(args)` は直近 `rank_months` 分の月次データを集計し、`recovery_factor`/`recovery_months` のフィルタ条件を満たさない戦略を `rank_by_pips_avg.csv` から除外し `dd_filtered.csv` に振り分ける
 - `run(args)` は `min_sig_per_hour` 未満のエントリー頻度の戦略を除外する
 - `run(args, as_of=...)` を指定すると `rank/all/rank_by_pips_avg.csv`（最新ランク）を変更せず、`rank/all/snapshots/<as_of>/` 配下にのみ結果を書き出す
+- `run(args)` はas-ofが無ければ `ban/` の最新の `entry_ban_all_*.yaml`（`ban/asof/` 配下は対象外）を読み、Banされた候補をDDフィルタ・ランキングの対象から外して、外した件数を表示する
+- `run(args, as_of=...)` はas-of指定時に `ban/asof/<as_of>/entry_ban_all.yaml` だけを読み、Banされた候補を対象から外す。その月のBanファイルが無ければ、最新のBanがあっても使わず、どの候補も外さない
+- `run(args)` はBanファイルが無ければどの候補も外さず、「no ban file found」を含むメッセージを表示する
+- `run(args)` は全候補がBanされてもエラーにならず、空のランキングを書く
 
 | 保証（要約） | 対応テスト |
 |---|---|
@@ -357,6 +374,10 @@
 | ランキングとDDフィルタ | `test_run_ranks_and_filters_by_recovery_factor` |
 | 低頻度戦略の除外 | `test_run_min_sig_per_hour_excludes_low_frequency_strategies` |
 | as-ofはsnapshotのみ更新 | `test_run_as_of_writes_snapshot_not_latest_rank` |
+| as-ofなしは最新のBanを適用 | `test_run_without_as_of_excludes_latest_ban_file` |
+| as-ofありはその月のBanだけを適用 | `test_run_as_of_reads_only_that_months_ban_file` |
+| Banファイル無しはどの候補も外さない | `test_run_without_ban_file_excludes_nobody_and_says_so` |
+| 全候補Banでも空ランキング | `test_run_all_candidates_banned_yields_empty_rank` |
 
 ### 17. `tests/test_s_monthly_sim.py` — core/s_monthly_sim.py (_hm / trading_days_in_month / _target_months / _load_strategies_from_snapshot / _build_positions / run)
 
@@ -388,15 +409,17 @@
 
 - `_months_to_backfill(n)` は直近 `n` か月分を昇順（古い→新しい）で返す
 - `_months_to_backfill(n)` が返す月は連続している（前月の翌月が次の要素になる）
-- `run(args)` は対象月ごとにS8（ランキング更新）→ 月次シム、の順で連続実行する
-- `run(args)` はS8が失敗した月があれば、その時点で処理を中断する（終了コード1）
-- `run(args)` は月次シムが失敗した場合も、その時点で処理を中断する（終了コード1。S8自体は成功済み）
+- `run(args)` は対象月ごとにS4（その月をas-ofとするBan判定）→ S8（as-ofのスナップショット）→ 翌月の月次シム、の順で連続実行する
+- `run(args)` はS4が失敗した月があれば、その時点で処理を中断する（終了コード1。S8・シムは動かさない）
+- `run(args)` はS8が失敗した月があれば、その時点で処理を中断する（終了コード1。S4は成功済み）
+- `run(args)` は月次シムが失敗した場合も、その時点で処理を中断する（終了コード1。S4・S8自体は成功済み）
 
 | 保証（要約） | 対応テスト |
 |---|---|
 | 直近N か月・昇順 | `test_months_to_backfill_length_and_ordering` |
 | 月の連続性 | `test_months_to_backfill_consecutive` |
-| S8→sim の順で実行 | `test_run_invokes_s8_then_sim_for_each_month` |
+| S4→S8→sim の順で実行 | `test_run_invokes_s4_s8_then_sim_for_each_month` |
+| S4失敗で中断 | `test_run_aborts_on_s4_failure` |
 | S8失敗で中断 | `test_run_aborts_on_s8_failure` |
 | sim失敗で中断 | `test_run_aborts_on_sim_failure` |
 

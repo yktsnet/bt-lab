@@ -7,6 +7,11 @@ s8_strategy_rank.py — K5相当: Recovery Factorフィルタ + 戦略ランキ�
   2. 基準を満たさない戦略を除外
   3. 直近N月のデータでランキング（pips_avg順 / pips_sum順）
 
+Ban の適用はここで行う。DD フィルタの前に、Ban された候補を集計対象から外す。
+  as-of 指定あり: ban/asof/<as_of>/entry_ban_all.yaml（s4 --as-of が作る）
+  as-of 指定なし: ban/ の最新の entry_ban_all_*.yaml
+Ban ファイルが無ければ誰も外さない。
+
 出力:
   rank/all/rank_by_pips_avg.csv
   rank/all/rank_by_pips_sum.csv
@@ -43,6 +48,34 @@ def parse_args() -> argparse.Namespace:
 from lib.env_paths import get_backtest_data_root
 
 SESSION = "all"
+
+
+def _resolve_ban_file(data_root: Path, as_of: str) -> Path | None:
+    ban_dir = data_root / "ban"
+    if as_of:
+        path = ban_dir / "asof" / as_of / "entry_ban_all.yaml"
+        return path if path.exists() else None
+    files = sorted(ban_dir.glob("entry_ban_all_*.yaml")) if ban_dir.exists() else []
+    return files[-1] if files else None
+
+
+def _load_ban_set(path: Path) -> set:
+    """Ban YAML の entries から (id, slug) のセットを返す。読めなければ空集合。"""
+    try:
+        import yaml
+
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        pairs = set()
+        for item in (data.get("entries") if isinstance(data, dict) else data) or []:
+            tid = item.get("id") or item.get("tid")
+            slug = item.get("slug")
+            if tid and slug:
+                pairs.add((tid, slug))
+        return pairs
+    except Exception as e:
+        print(f"s8: failed to load ban file {path}: {e}", flush=True)
+        return set()
 
 
 def _fv(env, k, d):
@@ -148,6 +181,16 @@ def run(args: argparse.Namespace | None = None) -> None:
         cutoff_month += 12
         cutoff_year -= 1
 
+    ban_file = _resolve_ban_file(data_root, as_of_str)
+    if ban_file is None:
+        print("s8: no ban file found, nothing excluded", flush=True)
+    else:
+        ban_set = _load_ban_set(ban_file)
+        is_banned = pd.MultiIndex.from_frame(df[["id", "slug"]]).isin(ban_set)
+        excluded = df.loc[is_banned, ["id", "slug"]].drop_duplicates()
+        df = df[~is_banned].copy()
+        print(f"s8: ban excluded={len(excluded)} ({ban_file})", flush=True)
+
     df["ym"] = df["year"] * 100 + df["month"]
     cutoff_ym = cutoff_year * 100 + cutoff_month
 
@@ -182,7 +225,13 @@ def run(args: argparse.Namespace | None = None) -> None:
             }
         )
 
-    dd_df = pd.DataFrame(dd_records)
+    dd_df = pd.DataFrame(
+        dd_records,
+        columns=[
+            "id", "slug", "abs_dd", "recovery_factor", "recovery_months",
+            "total_entries", "total_pips",
+        ],
+    )
     banned_dd = dd_df[
         (dd_df["recovery_factor"] < rf_min)
         | (dd_df["recovery_months"] > recovery_months_max)

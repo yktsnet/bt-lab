@@ -7,16 +7,23 @@ s4_ban_build.py — ALL Banリスト生成 + Jaccard重複排除
   3. 残った戦略（rate_ok）同士でJaccard類似度を計算し、閾値以上なら除外（jaccard_ban）
   4. Ban YAML を出力（ALL）
 
+--as-of YYYY-MM を指定すると、その月以前の月だけを判定に使い、
+ban/asof/<YYYY-MM>/entry_ban_all.yaml に（上書きで）書く。
+指定が無ければ ban/entry_ban_all_<timestamp>.yaml を書く。
+Ban の適用は s8 が行う（s3 は明示指定が無い限り Ban を適用しない）。
+
 使い方:
   python3 s4_ban_build.py [--months 3] [--min-rate 0.01] [--max-rate 0.5]
-                          [--jaccard 0.3] [--dry-run]
+                          [--jaccard 0.3] [--as-of YYYY-MM] [--dry-run]
 """
 
 import argparse
 import datetime
 import os
+import re
 import sys
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 import yaml
@@ -28,15 +35,21 @@ SESSION = "all"
 ENTRY_WINDOW_HOURS = (0, 17)
 
 
-def _list_recent_parquet(parquet_root: Path, n: int) -> list[Path]:
-    files = sorted(parquet_root.glob("year=*/*.parquet"))
-    return files[-n:] if n < len(files) else files
-
-
 def _parse_year_month(path: Path) -> tuple[int, int]:
     year = int(path.parent.name.split("=")[1])
     month = int(path.stem)
     return year, month
+
+
+def _list_recent_parquet(
+    parquet_root: Path, n: int, as_of: Optional[str] = None
+) -> list[Path]:
+    """直近 n 件の月次 parquet を返す。as_of (YYYY-MM) があればその月以前に絞ってから数える。"""
+    files = sorted(parquet_root.glob("year=*/*.parquet"))
+    if as_of:
+        as_of_ym = (int(as_of[:4]), int(as_of[5:7]))
+        files = [f for f in files if _parse_year_month(f) <= as_of_ym]
+    return files[-n:] if n < len(files) else files
 
 
 def _bars_in_window(parquet_path: Path) -> int:
@@ -88,15 +101,22 @@ def _jaccard_dedup(
 
 
 def run(
-    months: int, min_rate: float, max_rate: float, jaccard_thr: float, dry_run: bool
+    months: int,
+    min_rate: float,
+    max_rate: float,
+    jaccard_thr: float,
+    dry_run: bool,
+    as_of: Optional[str] = None,
 ) -> None:
+    if as_of is not None and not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", as_of):
+        raise ValueError(f"s4: invalid --as-of {as_of!r} (expected YYYY-MM)")
 
     data_root = get_backtest_data_root()
     parquet_root = get_parquet_root()
     positions_root = data_root / "positions"
     ban_dir = data_root / "ban"
 
-    parquet_files = _list_recent_parquet(parquet_root, months)
+    parquet_files = _list_recent_parquet(parquet_root, months, as_of)
     if not parquet_files:
         print("s4: no parquet files found", flush=True)
         return
@@ -104,7 +124,8 @@ def run(
     target_months = set(_parse_year_month(pf) for pf in parquet_files)
     print(
         f"s4: months={len(target_months)} "
-        f"min_rate={min_rate} max_rate={max_rate} jaccard={jaccard_thr}",
+        f"min_rate={min_rate} max_rate={max_rate} jaccard={jaccard_thr}"
+        + (f" as_of={as_of}" if as_of else ""),
         flush=True,
     )
 
@@ -254,8 +275,13 @@ def run(
         print(f"s4: total banned = {total_ban}", flush=True)
         return
 
-    ban_dir.mkdir(parents=True, exist_ok=True)
-    out_path = ban_dir / f"entry_ban_all_{now_str}.yaml"
+    if as_of:
+        out_dir = ban_dir / "asof" / as_of
+        out_path = out_dir / "entry_ban_all.yaml"
+    else:
+        out_dir = ban_dir
+        out_path = ban_dir / f"entry_ban_all_{now_str}.yaml"
+    out_dir.mkdir(parents=True, exist_ok=True)
     doc = {
         "generated_at": datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
@@ -268,6 +294,8 @@ def run(
         "ban_count": len(all_ban),
         "entries": all_ban,
     }
+    if as_of:
+        doc["as_of"] = as_of
     tmp = str(out_path) + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         yaml.dump(doc, f, default_flow_style=False, allow_unicode=True)
@@ -283,6 +311,7 @@ if __name__ == "__main__":
     parser.add_argument("--min-rate", type=float, default=0.01)
     parser.add_argument("--max-rate", type=float, default=0.5)
     parser.add_argument("--jaccard", type=float, default=0.3)
+    parser.add_argument("--as-of", default=None, help="YYYY-MM: judge using only months up to this month")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     run(
@@ -291,4 +320,5 @@ if __name__ == "__main__":
         max_rate=args.max_rate,
         jaccard_thr=args.jaccard,
         dry_run=args.dry_run,
+        as_of=args.as_of,
     )
