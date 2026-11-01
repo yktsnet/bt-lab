@@ -1,3 +1,42 @@
+## PR記録: feat: 選抜の当たり具合を月ごとに集計する段を足す
+issue: 03 (03_selection-eval.md)
+PR: https://github.com/yktsnet/drip-sim/pull/16
+
+## 変更内容
+- `core/s_selection_eval.py` を新規追加。`rank/all/snapshots/<M>/` の `rank_by_*.csv` ごとに、M+1 の月次データ（s7 の `monthly_all.csv`）がある月だけを集計し、`rank/all/eval/selection_eval.csv` に 1行 = (スナップショット月, 順位ファイル) で書く（`n_universe`, `n_selected`, `univ_mean_pips`, `sel_mean_pips`, `sel_minus_univ`, `topk_mean_pips`, `topk_hit_rate`, `rank_corr`）
+- 母集団は M 以前の月次データに現れた候補、M+1 に行が無い候補は 0 pips。Spearman は順位化→Pearson で自前計算（scipy 不使用）
+- `--top K`（既定 10）、`--from` / `--until`（範囲外のスナップショットは読まない）。出力は atomic。データが無いときは表示して終了コード 0
+- `bt.py` の `STAGES` に `eval` を登録（`PIPELINE_ORDER`・`PHASES` には入れない）
+- structure.md / README.md / README.en.md / docs/guarantees.md（§20 新設、§19 に eval の登録を追記）を更新
+- 追加コミットで `--from` / `--until` が範囲外を読まないこと（until 側を無効化すると失敗する）と `--top` の既定 10 をテストで固定
+
+## 保証
+- 出力列・手計算の値・母集団・0 pips 扱い → tests/test_s_selection_eval.py: test_hand_calculated_row, test_universe_counts_missing_next_month_as_zero_pips
+- topk_hit_rate / --top → test_topk_hit_rate_counts_only_strictly_positive, test_top_changes_k, test_top_defaults_to_10
+- rank_corr の向き・3件未満 NaN・同順位/定数 → test_rank_corr_is_negative_when_ranking_inverted, test_rank_corr_nan_under_three_selected, test_spearman_handles_ties_and_constants
+- M+1 無しの月を飛ばす・全 rank_by_*.csv が対象・標準出力の要約 → test_snapshot_without_next_month_data_is_skipped, test_all_rank_files_in_snapshot_are_evaluated, test_summary_printed_per_rank_file
+- --from/--until と範囲外を読まない・形式検証 → test_from_until_limit_snapshot_range_and_do_not_read_outside, test_month_arg_rejects_malformed, test_next_month_rolls_over_year
+- データ無しで表示して終了コード 0 / atomic → test_no_snapshots_…, test_no_monthly_data_…, test_no_next_month_for_any_snapshot_…, test_write_failure_leaves_existing_output_untouched
+- bt.py に eval を登録し PIPELINE_ORDER 外 → test_eval_stage_is_registered_but_outside_pipeline_order
+- 維持: §19 → tests/test_bt_cli.py の既存テスト
+
+## 静的確認結果
+- `PYTHONPATH=. pytest -q`: 214 passed
+- 合成データで `bt.py all` → `s4 --as-of 2026-06` → `S8_AS_OF=2026-06 bt.py s8` → `bt.py eval` が終了コード 0 で CSV と要約を出力。同梱の合成データが 2026-06〜07 のみで `monthly-backfill` が対象にする直近 3 か月と重ならないため、Issue の確認 2 は `S8_AS_OF` でスナップショットを作る手順に読み替えた（user 承認済み）
+
+## 検証手順
+- 実データで `bt.py monthly-backfill` の後に `bt.py eval --until <ホールドアウト前の月>` を回し、`sel_minus_univ` と `rank_corr` を見て順位指標と s8 の絞り方を判断する
+
+## 確認者の判定
+| 項目 | 判定 |
+|---|---|
+| 確認1: `pytest` 全件 | 合 |
+| 確認2: `all` → `monthly-backfill --months 3` → `eval` | 否（手順の前提不成立。`S8_AS_OF` での読み替えを user が承認） |
+| 保証（出力列・値・相関・範囲・atomic・bt 登録・§19 維持） | すべて合 |
+| テストの期待値の出し直し | すべて合 |
+
+---
+
 ## 選抜の当たり具合を月ごとに集計する段を足す
 id: 03
 branch-slug: selection-eval
