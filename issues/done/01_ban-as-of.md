@@ -1,3 +1,39 @@
+## PR記録: fix: Ban の判定を as-of 時点のデータに限り、適用を s8 に移す
+issue: 01 (01_ban-as-of.md)
+PR: https://github.com/yktsnet/drip-sim/pull/14
+
+## 変更内容
+- s4: `--as-of YYYY-MM` を追加。その月以前の parquet だけから直近 `--months` 件を選んで Ban を判定し、`ban/asof/<YYYY-MM>/entry_ban_all.yaml` に atomic・上書きで書く（YAML に `as_of` を記録）。`--as-of` 無しは従来どおり `ban/entry_ban_all_<timestamp>.yaml`。`YYYY-MM` 以外の値は `ValueError` で拒否する
+- s3: `ban/` の最新ファイルを自動で拾う処理を外した。`--ban-file` / `S3_BAN_FILE` の明示指定だけが Ban を適用する
+- s8: as-of 指定時は `ban/asof/<as_of>/entry_ban_all.yaml`、無指定なら `ban/` の最新 `entry_ban_all_*.yaml` を読み、Ban された候補を DD フィルタ・ランキングの前に外す。件数を `s8: ban excluded=<n> (<path>)` で表示し、Ban ファイルが無ければ誰も外さずその旨を表示する。全候補が外れても落ちないよう `dd_df` の列を固定した
+- backfill: 各月で s4 `--as-of` → s8 → 翌月の月次シム の順に実行し、どれかが失敗したら終了コード 1 で中断する
+
+## 保証
+- s4 の as-of（月以前だけで判定・出力先・`as_of` 記録・atomic・冪等・形式検証）→ `tests/test_s4_ban_build.py`
+- s3 は自動で Ban を拾わず、明示指定は適用 → `tests/test_s3_calc_positions.py`
+- s8 の Ban 適用（as-of 有無・ファイル無し・全除外）→ `tests/test_s8_strategy_rank.py`
+- backfill の s4→s8→シム順と中断 → `tests/test_s_monthly_backfill.py`
+- 廃止: §18「S8→シム」の順序の保証を S4→S8→シムに置き換え（台帳を更新済み）
+
+## 検証
+- `PYTHONPATH=. pytest -q`: 195 passed
+- 合成データで `bt.py all` が最後まで通り、`s4 --as-of` と `S8_AS_OF` の s8 も動作を確認
+
+## 実データでの確認（マージ後に user が行う）
+- 以前 Ban されて positions が無い候補があるので s3〜s7 を回し直す（計算時間の確認を含む）
+- `rank/all/snapshots/` と `monthly/` は先読みを含むので消してから `bt.py monthly-backfill` を回し直す
+
+## 確認者の判定
+| 項目 | 判定 |
+|---|---|
+| `pytest -q` が全件通る | 合 |
+| 合成データで `bt.py all` が通り、通常の Ban ができる | 合 |
+| `s4 --as-of` で `ban/asof/<YYYY-MM>/entry_ban_all.yaml` ができる | 合 |
+| テストの期待値の出し直し（s3 / s4 / s8 / backfill） | 合 |
+| 保証節の各項目と台帳（§11・§12・§16・§18） | 合 |
+
+---
+
 ## Ban の判定を as-of 時点のデータに限り、適用を s8 に移す
 id: 01
 branch-slug: ban-as-of
