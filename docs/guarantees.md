@@ -364,7 +364,7 @@
 - `run(args, as_of=...)` を指定すると `rank/all/rank_by_pips_avg.csv`（最新ランク）を変更せず、`rank/all/snapshots/<as_of>/` 配下にのみ結果を書き出す
 - `run(args)` はas-ofが無ければ `ban/` の最新の `entry_ban_all_*.yaml`（`ban/asof/` 配下は対象外）を読み、Banされた候補をDDフィルタ・ランキングの対象から外して、外した件数を表示する
 - `run(args, as_of=...)` はas-of指定時に `ban/asof/<as_of>/entry_ban_all.yaml` だけを読み、Banされた候補を対象から外す。その月のBanファイルが無ければ、最新のBanがあっても使わず、どの候補も外さない
-- `_pips_tstat(n, total, sq_total)` は `pips_tstat` = 平均 ÷ (不偏標準偏差 / √n) を計算し、n < 2 または標準偏差 0 のときは NaN を返す。標準偏差が小さくても 0 でなければ計算する。倍精度の誤差だけで生じた分散は 0 とみなす
+- `_pips_tstat(n, total, sq_total)` は `pips_tstat` = 平均 ÷ (不偏標準偏差 / √n) を計算し、n < 2 または標準偏差 0 のときは NaN を返す。分散が「2乗平均と1のうち大きいほう」の 1e-12 倍以下のときは、倍精度の誤差とみなして標準偏差 0 と同じく NaN を返す
 - `run(args)` は直近 `rank_months` の集計から候補ごとの `pips_tstat` を計算し、`rank_by_tstat.csv` に `pips_tstat` の降順で書く。NaN の候補は末尾に置く
 - `rank_by_tstat.csv` の対象集合（Ban・DDフィルタ・`min_sig_per_hour` を通った候補）は `rank_by_pips_avg.csv` と同じで、列は `rank_by_pips_avg.csv` に `pips_tstat` を足したものになる。`rank_by_pips_avg.csv` の並びと列は変わらない
 - `run(args, as_of=...)` はas-of指定時、`rank_by_tstat.csv` も `rank/all/snapshots/<as_of>/` に書く。そこに `rank_by_tstat.csv` が既にあれば上書きしない
@@ -387,7 +387,7 @@
 | 全候補Banでも空ランキング | `test_run_all_candidates_banned_yields_empty_rank` |
 | t値の計算 | `test_pips_tstat_hand_calculated` |
 | n<2・標準偏差0はNaN | `test_pips_tstat_is_nan_for_single_entry_or_zero_deviation` |
-| 標準偏差が小さくても0でなければ計算し、倍精度の誤差だけで生じた分散は0とみなしてNaN | `test_pips_tstat_keeps_small_but_nonzero_deviation_and_nans_float_noise` |
+| 分散が2乗平均の1e-12倍以下ならNaN、それより大きければt値を計算 | `test_pips_tstat_keeps_small_but_nonzero_deviation_and_nans_float_noise` |
 | t値の降順・NaNは末尾・列と既存順位の維持 | `test_run_writes_rank_by_tstat_sorted_desc_with_nan_last` |
 | t値の対象集合は `rank_by_pips_avg.csv` と同じ | `test_run_tstat_uses_same_candidate_set_after_filters`・`test_run_min_sig_per_hour_applies_to_tstat_rank_too` |
 | as-ofはt値もsnapshotに書く（既存は上書きしない） | `test_run_as_of_writes_tstat_snapshot_and_keeps_existing_one` |
