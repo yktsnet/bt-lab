@@ -1,7 +1,7 @@
 ## 引数を変えたら計算し直し、S6・月次シム・S1c の計算を S3〜S5 と registry に揃える
 id: 04
 branch-slug: rerun-and-calc-consistency
-status: open
+status: close
 type: fix
 対象: core/s3_calc_positions.py, core/s5_position_engine.py, core/s6_position_pips.py, core/s_monthly_sim.py, core/s1_enrich_parquet.py, tests/test_s3_calc_positions.py, tests/test_s5_position_engine.py, tests/test_s6_position_pips.py, tests/test_s_monthly_sim.py, tests/test_s1_enrich_parquet.py, docs/guarantees.md, docs/overview.md
 内容: 段ごとの計算が引数や他の段と食い違う4点を直す。(1) S3・S5・S6 が、引数を変えても既存の出力を飛ばして計算し直さない。(2) S6 が TP/SL で閉じた pips を価格ではなく引数から決めるので、S5 と違う値を渡すと pips が実際の値幅と合わない。(3) 月次シムが特徴量をその日のバーだけで計算し、S3 の30分間隔の絞り込みも掛けないため、S3〜S6 と同じ候補・同じ日でも結果が一致しない。(4) S1c が `lib/features.py` の `compute_all` の固定の一覧を焼き込み、`import/feature_registry.yaml` を読まない。README・conventions.md は registry を S1c の単一情報源と書いている。
