@@ -40,7 +40,7 @@ python3 bt.py flow                   # interactive phase-by-phase runner
 
 For non-interactive use from AI/scripts, use `bin/bt <stage> [args]` (a shell-independent executable). Run `bt.py --help` to list all stages, or `bt.py <stage> --help` for a stage's arguments.
 
-For interactive human use, there's `zsh/bt.sh`. Add `source /path/to/drip-sim/zsh/bt.sh` to your `.zshrc` and you get `bt` (reinterprets a bare call as `bt.py flow`, with tab completion) and `bt-py` (for invoking individual scripts directly).
+For interactive human use, there's `zsh/bt.sh`. Add `source /path/to/drip-sim-public/zsh/bt.sh` to your `.zshrc` and you get `bt` (reinterprets a bare call as `bt.py flow`, with tab completion) and `bt-py` (for invoking individual scripts directly).
 
 ## Architecture
 

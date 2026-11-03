@@ -40,7 +40,7 @@ python3 bt.py flow                   # 対話形式でフェーズを選んで�
 
 AI/スクリプトからの非対話実行には`bin/bt <stage> [args]`（シェル非依存の実行可能スクリプト）を使う。`bt.py --help`で全stage一覧、`bt.py <stage> --help`で各段の引数を確認できる。
 
-人間の対話利用向けには`zsh/bt.sh`がある。`.zshrc`等で`source /path/to/drip-sim/zsh/bt.sh`すると、`bt`（引数無しで`bt.py flow`に読み替え、tab補完つき）と`bt-py`（個別スクリプトを直接叩く用）が使えるようになる。
+人間の対話利用向けには`zsh/bt.sh`がある。`.zshrc`等で`source /path/to/drip-sim-public/zsh/bt.sh`すると、`bt`（引数無しで`bt.py flow`に読み替え、tab補完つき）と`bt-py`（個別スクリプトを直接叩く用）が使えるようになる。
 
 ## Architecture
 
