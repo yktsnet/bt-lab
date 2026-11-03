@@ -4,6 +4,9 @@ s_monthly_sim.py — Monthly backtest simulation
 Runs snapshot strategies with pips_avg_per_entry >= 0.3 over past 12 complete months.
 Output: drip_sim_data/monthly/{YYYY-MM}/ALL/{date}.csv
 
+計算は S3 → S5 → S6 と同じ関数を通す（月のバー全体に戦略を当て、S3 の間隔で絞り、
+S5 でイベント化し、S6 で pips を出す）。日ごとの行は、閉じたイベントを閉じた日で数えたもの。
+
 Run:
   python3 s_monthly_sim.py
   SIM_MONTH=2026-03 python3 s_monthly_sim.py
@@ -21,8 +24,10 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from lib.env_paths import get_backtest_data_root, get_parquet_root
-from lib.features import compute_all
 from lib.cli_common import add_trading_args, apply_env_overrides
+from core.s3_calc_positions import compute_entries
+from core.s5_position_engine import build_events
+from core.s6_position_pips import _calc_pips
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,36 +39,6 @@ def parse_args() -> argparse.Namespace:
 SESSION = "ALL"
 START_HOUR = 0
 END_HOUR = 17
-EOD_UTC = "17:00"
-
-
-def _fv(env, k, d):
-    try:
-        return float(env.get(k, d))
-    except Exception:
-        return float(d)
-
-
-def _iv(env, k, d):
-    try:
-        return int(float(env.get(k, d)))
-    except Exception:
-        return int(d)
-
-
-def _hm(s):
-    if not s:
-        return None
-    text = str(s).strip()
-    if len(text) >= 16 and text[10] in ("T", " "):
-        text = text[11:16]
-    parts = text[:5].split(":")
-    if len(parts) != 2:
-        return None
-    try:
-        return int(parts[0]) * 60 + int(parts[1])
-    except Exception:
-        return None
 
 
 def _load_strategies_from_snapshot(
@@ -103,98 +78,23 @@ def _load_strategy(path: Path):
     return mod
 
 
-def _build_positions(rows: list, env: dict) -> list:
-    pip = _fv(env, "PIP_SIZE", 0.01)
-    tp_d = _fv(env, "RR_TP_PIPS", 30.0) * pip
-    sl_d = _fv(env, "RR_SL_PIPS", 10.0) * pip
-    tp_p = _fv(env, "RR_TP_PIPS", 30.0)
-    sl_p = _fv(env, "RR_SL_PIPS", 10.0)
-    spread = _fv(env, "SPREAD_PIPS", 0.3)
-    maxn = _iv(env, "MAX_ENTRIES_PER_STRAT", 3)
-    sp = _fv(env, "ABN_BURST_HL_PIPS", 30.0)
-    spfw = _iv(env, "ABN_FORWARD_BLOCK_BARS", 3)
-    eod_m = _hm(EOD_UTC)
-
-    out = []
-    opens = []
-    pend = []
-    blk = 0
-
-    for i, r in enumerate(rows):
-        t = r.get("time_utc", "")
-        o = float(r["open"])
-        h = float(r["high"])
-        l = float(r["low"])
-        c = float(r["close"])
-        idx = _hm(str(t))
-
-        toc = []
-        for j, p in enumerate(opens):
-            if p.get("born", -1) >= i:
-                continue
-            if p["side"] == "BUY":
-                if l <= p["sl"]:
-                    toc.append((j, "SL"))
-                elif h >= p["tp"]:
-                    toc.append((j, "TP"))
-            else:
-                if h >= p["sl"]:
-                    toc.append((j, "SL"))
-                elif l <= p["tp"]:
-                    toc.append((j, "TP"))
-
-        for j, why in sorted(toc, key=lambda x: -x[0]):
-            p = opens.pop(j)
-            gross = tp_p if why == "TP" else -sl_p
-            out.append({"why": why, "pips_net": round(gross - spread, 2)})
-
-        flag = None
-        if sp > 0 and (h - l) >= sp * pip:
-            flag = "SPARK"
-            blk = max(blk, spfw)
-        elif eod_m is not None and idx is not None and idx >= eod_m:
-            flag = "EOD"
-
-        if flag and opens:
-            while opens:
-                p = opens.pop(0)
-                sign = 1.0 if p["side"] == "BUY" else -1.0
-                gross = sign * (c - p["entry"]) / pip
-                out.append({"why": flag, "pips_net": round(gross - spread, 2)})
-
-        allow = (blk == 0) and (flag is None)
-        if blk > 0:
-            blk -= 1
-
-        keep = []
-        for q in pend:
-            if q["at"] != i:
-                keep.append(q)
-                continue
-            sd = q["side"]
-            opp = [p for p in opens if p["side"] != sd]
-            if opp:
-                p = opp[0]
-                opens.remove(p)
-                sign = 1.0 if p["side"] == "BUY" else -1.0
-                gross = sign * (o - p["entry"]) / pip
-                out.append({"why": "NET", "pips_net": round(gross - spread, 2)})
-                continue
-            if q["allow"] and allow and sum(1 for p in opens if p["side"] == sd) < maxn:
-                tpv = o + tp_d if sd == "BUY" else o - tp_d
-                slv = o - sl_d if sd == "BUY" else o + sl_d
-                opens.append({"side": sd, "entry": o, "tp": tpv, "sl": slv, "born": i})
-        pend = keep
-
-        fl = int(r.get("entry_flag", 0)) == 1
-        own = int(r.get("is_own_session", 0)) == 1
-        sd_now = str(r.get("side", "")).strip().upper()
-        if sd_now not in ("BUY", "SELL"):
-            sd_now = "BUY"
-        if own and fl and i + 1 < len(rows):
-            pend.append({"at": i + 1, "side": sd_now, "allow": allow})
-
-    return out
+def _month_closes(mod, df_month: pd.DataFrame, ident: str, env: dict) -> pd.DataFrame:
+    """1戦略を月のバー全体に S3 → S5 → S6 と同じ手順で当て、閉じたイベントを
+    閉じた日（date）と pips_net の2列で返す。"""
+    empty = pd.DataFrame({"date": [], "pips_net": []})
+    interval = int(float(env.get("ENTRY_INTERVAL_MIN", 30)))
+    sig = compute_entries(mod, df_month, interval)
+    if sig is None:
+        return empty
+    events = build_events(df_month, sig, ident, env)
+    if not events:
+        return empty
+    ev = _calc_pips(pd.DataFrame(events), env)
+    closes = ev[ev["type"] == "close"]
+    return pd.DataFrame({
+        "date": pd.to_datetime(closes["time_utc"], utc=True).dt.date.values,
+        "pips_net": closes["pips_net"].astype("float64").values,
+    })
 
 
 def trading_days_in_month(month: date) -> list:
@@ -262,75 +162,45 @@ def run(args: argparse.Namespace | None = None) -> None:
         df_month["time_utc"] = pd.to_datetime(df_month["time_utc"], utc=True)
 
         days = trading_days_in_month(month)
+        todo = [
+            d for d in days
+            if not (monthly_root / f"{month.year}-{month.month:02d}" / SESSION / f"{d}.csv").exists()
+        ]
+        # 日ごとに回さず月で1回回す。S5 の SPARK 後の建て止めなど日をまたぐ状態も S3〜S6 と揃う
+        sess_bars = df_month[
+            (df_month["time_utc"].dt.hour >= START_HOUR) & (df_month["time_utc"].dt.hour < END_HOUR)
+        ]
+        bar_days = set(sess_bars["time_utc"].dt.date)
+        todo = [d for d in todo if d in bar_days]
         written = 0
 
-        for day in days:
+        closes_by_strategy = {}
+        if todo:
+            for sf in strategy_files:
+                try:
+                    closes_by_strategy[sf] = _month_closes(
+                        _load_strategy(sf), df_month, sf.parent.name, env
+                    )
+                except Exception as e:
+                    print(f"  WARN ALL/{sf.name} {month.strftime('%Y-%m')}: {e}", flush=True)
+                    closes_by_strategy[sf] = None
+
+        for day in todo:
             out_path = monthly_root / f"{month.year}-{month.month:02d}" / SESSION / f"{day}.csv"
-            if out_path.exists():
-                continue
-
-            df_today = df_month[df_month["time_utc"].dt.date == day].copy()
-            if df_today.empty:
-                continue
-
-            all_computed = compute_all(df_today)
-            for k, v in all_computed.items():
-                if k not in df_today.columns:
-                    df_today[k] = v.values
-
-            df_sess = (
-                df_today[
-                    (df_today["time_utc"].dt.hour >= START_HOUR)
-                    & (df_today["time_utc"].dt.hour < END_HOUR)
-                ]
-                .copy()
-                .reset_index(drop=True)
-            )
-            if df_sess.empty:
-                continue
 
             records = []
             for sf in strategy_files:
                 tid = sf.parent.name
                 slug = sf.stem
-
-                try:
-                    mod = _load_strategy(sf)
-                    result = mod.apply_entry_flag(df_sess.copy(), getattr(mod, "PARAMS", {}))
-                    if result is None or result.empty:
-                        records.append({"tid": tid, "slug": slug, "entries": 0, "pips_sum": 0.0, "pips_avg": ""})
-                        continue
-
-                    result["entry_flag"] = (
-                        pd.to_numeric(result.get("entry_flag", 0), errors="coerce")
-                        .fillna(0)
-                        .astype(int)
-                    )
-                    if "buy_sell" in result.columns:
-                        result["side"] = result["buy_sell"].fillna("BUY").astype(str)
-                    elif "side" not in result.columns:
-                        result["side"] = "BUY"
-                    else:
-                        result["side"] = result["side"].fillna("BUY").astype(str)
-
-                    sig = result[["time_utc", "entry_flag", "side"]].copy()
-                    df_full = df_today.merge(sig, on="time_utc", how="left")
-                    df_full["entry_flag"] = df_full["entry_flag"].fillna(0).astype(int)
-                    df_full["side"] = df_full["side"].fillna("").astype(str)
-                    df_full["is_own_session"] = (
-                        (df_full["time_utc"].dt.hour >= START_HOUR)
-                        & (df_full["time_utc"].dt.hour < END_HOUR)
-                    ).astype(int)
-
-                    closes = _build_positions(df_full.to_dict("records"), env)
-                    entries = len(closes)
-                    pips_sum = sum(c["pips_net"] for c in closes if c.get("pips_net") is not None)
-                    pips_avg = round(pips_sum / entries, 2) if entries > 0 else ""
-
-                    records.append({"tid": tid, "slug": slug, "entries": entries, "pips_sum": round(pips_sum, 2), "pips_avg": pips_avg})
-                except Exception as e:
-                    print(f"  WARN ALL/{sf.name} {day}: {e}", flush=True)
+                closes = closes_by_strategy[sf]
+                if closes is None:
                     records.append({"tid": tid, "slug": slug, "entries": 0, "pips_sum": 0.0, "pips_avg": ""})
+                    continue
+                today = closes[closes["date"] == day]
+                entries = len(today)
+                pips_sum = float(today["pips_net"].sum())
+                pips_avg = round(pips_sum / entries, 2) if entries > 0 else ""
+                records.append({"tid": tid, "slug": slug, "entries": entries, "pips_sum": round(pips_sum, 2), "pips_avg": pips_avg})
 
             if records:
                 out_path.parent.mkdir(parents=True, exist_ok=True)

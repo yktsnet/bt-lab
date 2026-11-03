@@ -103,3 +103,59 @@ def test_main_default_processes_all_years(monkeypatch, tmp_path, capsys):
 
     out = capsys.readouterr().out
     assert "files=2" in out
+
+
+def _use_registry(monkeypatch, tmp_path, names):
+    import yaml
+
+    import_root = tmp_path / "import"
+    import_root.mkdir()
+    (import_root / "feature_registry.yaml").write_text(yaml.safe_dump({"precompute": names}))
+    monkeypatch.setattr(s1c, "get_import_root", lambda: import_root)
+
+
+def test_enrich_file_adds_only_columns_listed_in_registry(monkeypatch, tmp_path):
+    _use_registry(monkeypatch, tmp_path, ["rsi14", "ema9"])
+    path = tmp_path / "01.parquet"
+    _write(path, _bars())
+
+    assert s1c._enrich_file(path) == 2
+
+    out = pd.read_parquet(path)
+    assert {"rsi14", "ema9"} <= set(out.columns)
+    assert "ema12" not in out.columns
+    assert "pivot_p" not in out.columns
+
+
+def test_enrich_file_fails_naming_registry_columns_compute_all_lacks(monkeypatch, tmp_path):
+    _use_registry(monkeypatch, tmp_path, ["rsi14", "no_such_feature", "another_missing"])
+    path = tmp_path / "01.parquet"
+    _write(path, _bars())
+    original = path.read_bytes()
+
+    with pytest.raises(s1c.RegistryMismatch) as exc:
+        s1c._enrich_file(path)
+
+    assert "no_such_feature" in str(exc.value)
+    assert "another_missing" in str(exc.value)
+    assert path.read_bytes() == original
+
+
+def test_main_exits_nonzero_when_registry_has_unknown_column(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    _use_registry(monkeypatch, tmp_path, ["rsi14", "no_such_feature"])
+    _write(tmp_path / "parquet_data" / "year=2025" / "01.parquet", _bars())
+
+    with pytest.raises(SystemExit) as exc:
+        s1c.main(s1c.argparse.Namespace(year=None))
+
+    assert exc.value.code != 0
+    assert "no_such_feature" in capsys.readouterr().err
+
+
+def test_real_registry_columns_are_all_computed_by_compute_all():
+    from lib.features import compute_all
+
+    df = _bars(n=300)
+    missing = [c for c in s1c.registry_columns() if c not in compute_all(df)]
+    assert missing == []

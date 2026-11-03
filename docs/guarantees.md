@@ -162,7 +162,7 @@
 
 *（区切り内は `apply_kind_strategy` 一つだけなので主語を繰り返さない）*
 
-### 9. `tests/test_s1_enrich_parquet.py` — core/s1_enrich_parquet.py (_load_parquet / _enrich_file / main)
+### 9. `tests/test_s1_enrich_parquet.py` — core/s1_enrich_parquet.py (_load_parquet / registry_columns / _enrich_file / main)
 
 - `_load_parquet(path)` は `close` 列が無いファイルを読み込むと `None` を返し、「missing close column」を含むメッセージを表示する
 - `_enrich_file(path)` は欠けている特徴量列を計算して書き込み、追加した列数を返す
@@ -171,6 +171,9 @@
 - `main(args)` は `--year` を指定すると、その年のディレクトリ（`year=YYYY/`）のファイルのみを処理する
 - `main(args)` は `--year` を指定しない場合、全年のファイルを処理する
 - `_enrich_file(path)` の書き込みは `.tmp` へ書いてから `os.replace` する手順を踏むため、書き込み中に例外が起きても元のファイルは壊れた状態で残らない（atomic write契約, conventions.md）
+- `_enrich_file(path)` は `import/feature_registry.yaml` の `precompute` にある列だけを焼き込み、`compute_all` が計算してもregistryに無い列は足さない
+- `_enrich_file(path)` はregistryの `precompute` に `compute_all` が計算しない列があると、その列名を並べたメッセージで `RegistryMismatch` を送出し、ファイルを書き換えない。`main(args)` はこのとき列名を標準エラーに出して終了コード0以外で終わる
+- リポに同梱の `import/feature_registry.yaml` の `precompute` の列は、すべて `compute_all` が計算する
 
 | 保証（要約） | 対応テスト |
 |---|---|
@@ -181,6 +184,9 @@
 | `--year`指定で対象年のみ処理 | `test_main_year_filter_processes_only_matching_year` |
 | `--year`未指定で全年処理 | `test_main_default_processes_all_years` |
 | 書き込み失敗時の元ファイルの保全 | `test_enrich_file_write_failure_leaves_original_file_untouched` |
+| registryのprecomputeの列だけを焼き込む | `test_enrich_file_adds_only_columns_listed_in_registry` |
+| compute_allに無いregistryの列は名前を出して失敗 | `test_enrich_file_fails_naming_registry_columns_compute_all_lacks`, `test_main_exits_nonzero_when_registry_has_unknown_column` |
+| 同梱registryの列はすべてcompute_allが計算する | `test_real_registry_columns_are_all_computed_by_compute_all` |
 
 ### 10. `tests/test_s2_gen_strategies.py` — core/s2_gen_strategies.py (_expand_grid / _make_slug / _vstr / main)
 
@@ -216,7 +222,10 @@
 - `_jobs(raw)` は `"auto"`・未指定・数値文字列をそれぞれ解釈し、数値以外の文字列（`ENTRY_JOBS`の不正値）が来た場合もクラッシュせずCPU数にフォールバックする
 - `_process_strategy_month(...)` は戦略を適用した結果から `entry_flag` が立った行のみを出力ファイルに書き込む
 - `_process_strategy_month(...)` は `entry_interval_min` を指定すると、その分刻みに一致する時刻のバーのみを残す
-- `_process_strategy_month(...)` は出力ファイルが入力より新しい場合、再計算をスキップする（`False` を返す）
+- `_process_strategy_month(...)` は出力ファイルが入力より新しく、その出力を作ったときの `entry_interval_min` が今回と同じ場合、再計算をスキップする（`False` を返す）
+- `_process_strategy_month(...)` は出力ファイルが入力より新しくても、その出力を作ったときの `entry_interval_min` が今回と違えば計算し直す。作ったときの値を残していない出力（parquetのメタデータ `drip_sim.s3` が無いもの）も計算し直す
+- `_process_strategy_month(...)` は計算し直した結果エントリーが1つも残らないとき、前に作った出力を消す（古い引数の出力を後段が読まない）
+- `_process_strategy_month(...)` の書き込みは `.tmp` へ書いてから `os.replace` するため、書き込み中に例外が起きても既存の出力は壊れた状態で残らない（atomic write契約, conventions.md）
 - `_process_strategy_month(...)` は実在する `strategies_md/oscillator/rsi_zone/template.py` から生成された戦略ファイルに対しても、`apply_entry_flag` の3カラム契約（`entry_flag`/`buy_sell`/`trend_dir`、conventions.md記載）を満たす出力を書き込む
 - `run(args)` はban集合や`entry_interval`設定を反映しつつ、対象月・戦略ごとに `positions/<kind>/<slug>/year=<year>/<month>.parquet` を書き出す
 - `run(args)` は `ban/` にBanファイルがあっても自動では拾わない。`--ban-file` / `S3_BAN_FILE` で明示したときだけBanを適用する
@@ -233,7 +242,11 @@
 | ENTRY_JOBSの解決とフォールバック | `test_jobs_auto_and_explicit_and_invalid` |
 | entry_flag行のみ出力 | `test_process_strategy_month_writes_only_entry_flag_rows` |
 | entry_interval_minでの分フィルタ | `test_process_strategy_month_entry_interval_filters_minutes` |
-| 出力が新しい場合はスキップ | `test_process_strategy_month_skips_when_output_is_fresh` |
+| 出力が新しく間隔も同じならスキップ | `test_process_strategy_month_skips_when_output_is_fresh`, `test_process_strategy_month_recomputes_when_entry_interval_changes` |
+| 間隔が違えば計算し直す | `test_process_strategy_month_recomputes_when_entry_interval_changes` |
+| 間隔を残していない出力は計算し直す | `test_process_strategy_month_recomputes_output_without_recorded_interval` |
+| エントリーが残らなければ古い出力を消す | `test_process_strategy_month_removes_stale_output_when_no_entry_remains` |
+| 書き込み失敗時に既存の出力を壊さない | `test_process_strategy_month_write_failure_leaves_existing_output_untouched` |
 | 実物のrsi_zone templateの3カラム契約 | `test_process_strategy_month_honors_real_rsi_zone_template_contract` |
 | end-to-endでpositions/を生成 | `test_run_end_to_end_writes_positions` |
 | ban/ の最新ファイルを自動では適用しない | `test_run_does_not_auto_apply_latest_ban_file` |
@@ -294,6 +307,10 @@
 - `_build_positions(...)` は `MAX_ENTRIES_PER_STRAT` を超えるオープンを行わない
 - `_process_one(...)` は該当するparquetとsignalファイルが揃っている場合にのみ `"wrote"` を返し、`pos_events/<kind>/<slug>/year=<year>/<month>.parquet` を書き出す
 - `_process_one(...)` は入力ファイルが見つからない場合、`"skipped"` を返す
+- `_process_one(...)` は出力ファイルが入力より新しく、その出力を作ったときの売買の引数（`PIP_SIZE`・`RR_TP_PIPS`・`RR_SL_PIPS`・`LOT_PER_ENTRY`・`MAX_ENTRIES_PER_STRAT`・`ABN_BURST_HL_PIPS`・`ABN_FORWARD_BLOCK_BARS`・`EOD_UTC`）がすべて今回と同じ場合、`"skipped"` を返す
+- `_process_one(...)` は出力ファイルが入力より新しくても、上の売買の引数のどれかが今回と違えば計算し直す。作ったときの引数を残していない出力（parquetのメタデータ `drip_sim.s5` が無いもの）も計算し直す
+- `_process_one(...)` の書き込みは `.tmp` へ書いてから `os.replace` するため、書き込み中に例外が起きても既存の出力は壊れた状態で残らない（atomic write契約, conventions.md）
+- `_process_one(...)` は計算し直した結果イベントが1つも無いとき、前に作った出力を消す
 - `run(args)` は全戦略・全月を処理し、`pos_events/` 配下にイベントファイルを書き出す
 
 | 保証（要約） | 対応テスト |
@@ -307,26 +324,39 @@
 | 最大エントリー数の制限 | `test_build_positions_max_entries_per_strat_caps_opens` |
 | イベントファイル書き込み | `test_process_one_writes_events_parquet` |
 | 入力欠損はskipped | `test_process_one_skips_when_inputs_missing` |
+| 引数が同じならskipped | `test_process_one_skips_when_fresh_and_trade_args_unchanged` |
+| 売買の引数のどれかが違えば計算し直す | `test_process_one_recomputes_when_any_trade_arg_changes` |
+| 引数を残していない出力は計算し直す | `test_process_one_recomputes_output_without_recorded_args` |
+| 書き込み失敗時に既存の出力を壊さない | `test_process_one_write_failure_leaves_existing_output_untouched` |
+| イベントが残らなければ古い出力を消す | `test_process_one_removes_stale_output_when_no_event_remains` |
 | end-to-end実行 | `test_run_end_to_end` |
 
 ### 14. `tests/test_s6_position_pips.py` — core/s6_position_pips.py (_fv・_iv / _calc_pips / _process_one / run)
 
 - `_fv`/`_iv` は環境設定値が未設定または数値として解釈できない場合、デフォルト値にフォールバックする（クラッシュしない）
-- `_calc_pips(df, env)` はTP/SLでクローズした行に対し、固定pips（`RR_TP_PIPS`/`RR_SL_PIPS`）からスプレッド（`SPREAD_PIPS`）を差し引いた値を `pips_net` に書き込む
-- `_calc_pips(df, env)` はTP/SL以外の理由（例: EOD/NET）でクローズした行に対し、`(close_price-entry)/PIP_SIZE` を売買方向（BUY/SELL）に応じた符号で計算する
+- `_calc_pips(df, env)` はクローズした行すべて（TP/SLを含む）に対し、`(close_price-entry)/PIP_SIZE` を売買方向（BUY/SELL）に応じた符号で計算し、スプレッド（`SPREAD_PIPS`）を差し引いた値を `pips_net` に書き込む。`RR_TP_PIPS`/`RR_SL_PIPS` は使わない
+- S5 を `RR_TP_PIPS=40` で流したイベントファイルに、引数を渡さずに `_process_one` を当てると、TPで閉じた行の `pips_net` は `40 − 0.3`（既定スプレッド）になる
 - `_calc_pips(df, env)` は `close_price` が欠損している行に対し `pips_net` を `NaN` にする
 - `_process_one(path, env)` は `pips_net` を計算してファイルに書き込み、`"wrote"` を返す
-- `_process_one(path, env)` は `pips_net` が既に埋まっているファイルに対しては何もせず、`"skipped"` を返す
+- `_process_one(path, env)` は `pips_net` を付け終えたファイルで、付けたときの `PIP_SIZE`・`SPREAD_PIPS` が今回と同じ場合は何もせず、`"skipped"` を返す
+- `_process_one(path, env)` は `pips_net` を付け終えたファイルでも、付けたときの `PIP_SIZE`・`SPREAD_PIPS` が今回と違えば付け直す。付けたときの値を残していないファイル（parquetのメタデータ `drip_sim.s6` が無いもの）も付け直す
+- `_process_one(path, env)` は付け直すとき、S5 が残した引数のメタデータ（`drip_sim.s5`）を保つ
+- `_process_one(path, env)` の書き込みは `.tmp` へ書いてから `os.replace` するため、書き込み中に例外が起きても元のファイルは壊れた状態で残らない（atomic write契約, conventions.md）
 - `run(args)` は `pos_events/` 配下の全ファイルに対し `pips_net` 列を書き込む
 
 | 保証（要約） | 対応テスト |
 |---|---|
 | _fv/_iv: フォールバック | `test_fv_iv_defaults_and_fallback` |
-| TP/SLは固定pips-スプレッド | `test_calc_pips_tp_and_sl_use_fixed_pip_values` |
+| TP/SLも価格差から算出（引数は使わない） | `test_calc_pips_tp_and_sl_are_computed_from_price_delta_not_args` |
+| S5のTP 40 → S6でTP行は40−スプレッド | `test_s5_tp_40_then_s6_without_args_gives_40_minus_spread`（`tests/test_s5_position_engine.py`） |
 | その他理由は価格差から算出 | `test_calc_pips_other_reason_computed_from_price_delta` |
 | 価格欠損はNaN | `test_calc_pips_missing_price_yields_nan` |
 | pips_netの書き込み | `test_process_one_writes_pips_net_column` |
-| 既存値がある場合はskipped | `test_process_one_skips_when_pips_net_already_populated` |
+| 同じPIP_SIZE・スプレッドで付け終えていればskipped | `test_process_one_skips_when_done_with_same_pip_size_and_spread` |
+| PIP_SIZE・スプレッドが違えば付け直す | `test_process_one_recomputes_when_spread_or_pip_size_changes` |
+| 引数を残していないファイルは付け直す | `test_process_one_recomputes_file_that_has_pips_net_but_no_recorded_args` |
+| S5のメタデータを保つ | `test_process_one_keeps_s5_args_recorded_in_the_file` |
+| 書き込み失敗時に元ファイルを壊さない | `test_process_one_write_failure_leaves_original_file_untouched` |
 | end-to-end実行 | `test_run_end_to_end` |
 
 ### 15. `tests/test_s7_position_summary.py` — core/s7_position_summary.py (_r2 / _quarter / _bars_in_window / run)
@@ -393,31 +423,31 @@
 | as-ofはt値もsnapshotに書く（既存は上書きしない） | `test_run_as_of_writes_tstat_snapshot_and_keeps_existing_one` |
 | 列が無ければt値を書かず他は書く | `test_run_without_pips_sq_sum_total_skips_tstat_but_writes_other_outputs`・`test_run_without_pips_sq_sum_total_skips_tstat_snapshot` |
 
-### 17. `tests/test_s_monthly_sim.py` — core/s_monthly_sim.py (_hm / trading_days_in_month / _target_months / _load_strategies_from_snapshot / _build_positions / run)
+### 17. `tests/test_s_monthly_sim.py` — core/s_monthly_sim.py (trading_days_in_month / _target_months / _load_strategies_from_snapshot / run)
 
-- `_hm(value)` は `"HH:MM"` 形式・ISO日時を分単位に変換し、`None` に対しては `None` を返す
 - `trading_days_in_month(month)` は土日を除いた営業日の日付リストを返す
 - `_target_months(sim_month)` は `sim_month` を明示指定すると、その1か月分だけを対象にする
 - `_target_months("")` は指定が無い場合、直近12か月（先月まで）を対象にする
 - `_load_strategies_from_snapshot(...)` はスナップショットのランクCSVから `min_avg` 以上の戦略のみを読み込み、対応する戦略ファイルが存在しない行は無視する
 - `_load_strategies_from_snapshot(...)` はスナップショットが存在しない場合、空リストを返し「snapshot not found」を含むメッセージを表示する
-- `_build_positions(rows, env)` はTP到達でクローズし、`pips_net` を正しく計算する
 - `run(args)` はスナップショット対象の戦略ごとに日次CSV（`tid`/`slug`/`entries`/`pips_sum`/`pips_avg`列）を `monthly/<month>/ALL/` に書き出す
 - `run(args)` は対象月にスナップショットが無い場合、「no snapshot for <month>」を含むメッセージを表示してスキップする
 - `run(args)` の日次CSV書き込みは `.tmp` へ書いてから `os.replace` する手順を踏むため、書き込み中に例外が起きても壊れた出力ファイルが残らない（atomic write契約, conventions.md）
+- `run(args)` は同じ戦略・同じ月・同じ売買の引数なら、S3（既定の30分間隔）→ S5 → S6 と同じ計算をし、日ごと（閉じた日）のエントリー件数と pips の合計が一致する。特徴量はS1cが焼き込んだ月のparquetの列を使う
+- `run(args)` は `buy_sell`（または `side`）が BUY・SELL でないバーではポジションを建てない
 
 | 保証（要約） | 対応テスト |
 |---|---|
-| 時刻文字列の分単位変換 | `test_hm_parses_hhmm_and_iso` |
 | 営業日（土日除外） | `test_trading_days_in_month_excludes_weekends` |
 | 対象月の明示指定 | `test_target_months_explicit_sim_month` |
 | 既定は直近12か月 | `test_target_months_default_returns_12_months_ending_last_month` |
 | min_avgでの戦略フィルタ | `test_load_strategies_from_snapshot_filters_by_min_avg` |
 | snapshot欠損時の挙動 | `test_load_strategies_from_snapshot_missing_snapshot_returns_empty` |
-| TPクローズとpips_net | `test_build_positions_records_tp_close` |
 | 日次CSVの書き出し | `test_run_writes_daily_csv_for_snapshot_strategies` |
 | 書き込み失敗時に壊れた出力を残さない | `test_run_write_failure_does_not_leave_partial_daily_csv` |
 | snapshot無しはスキップ | `test_run_skips_month_without_snapshot` |
+| S3→S5→S6と日ごとの件数・pips合計が一致 | `test_run_matches_s3_s5_s6_entries_and_pips_per_day` |
+| BUY・SELLでないバーでは建てない | `test_run_does_not_open_positions_on_bars_without_side` |
 
 ### 18. `tests/test_s_monthly_backfill.py` — core/s_monthly_backfill.py (_months_to_backfill / run)
 
