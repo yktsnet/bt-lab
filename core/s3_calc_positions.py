@@ -14,12 +14,15 @@ strategies/<tid>/<slug>.py → parquet_data/positions/<tid>/<slug>/<year>/<mm>.p
 import argparse
 import concurrent.futures
 import importlib.util
+import json
 import os
 import sys
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 current_dir = Path(__file__).resolve().parent
 sys.path.append(str(current_dir.parent))
@@ -118,8 +121,82 @@ def _add_session_column(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# 出力 parquet に「作ったときの引数」を残すキー。S5・S6 も同じ仕組みで自分の引数を残す。
+META_PREFIX = "drip_sim."
+META_KEY_S3 = META_PREFIX + "s3"
+
+
+def read_meta(path: Path) -> dict:
+    """parquet のスキーマメタデータから drip_sim.* のキーだけを取り出す。読めなければ空。"""
+    try:
+        md = pq.read_schema(path).metadata or {}
+    except Exception:
+        return {}
+    out = {}
+    for k, v in md.items():
+        key = k.decode()
+        if key.startswith(META_PREFIX):
+            try:
+                out[key] = json.loads(v)
+            except Exception:
+                continue
+    return out
+
+
+def write_parquet_atomic(df: pd.DataFrame, path: Path, meta: dict) -> None:
+    """`.tmp` に書いてから置換する。meta は {キー: JSON 化できる値} でスキーマに埋め込む。"""
+    table = pa.Table.from_pandas(df, preserve_index=False)
+    md = dict(table.schema.metadata or {})
+    for k, v in meta.items():
+        md[k.encode()] = json.dumps(v, sort_keys=True).encode()
+    table = table.replace_schema_metadata(md)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    pq.write_table(table, tmp)
+    os.replace(tmp, path)
+
+
 def _out_path(positions_root: Path, tid: str, slug: str, year: int, month: int) -> Path:
     return positions_root / tid / slug / f"year={year}" / f"{month:02d}.parquet"
+
+
+def compute_entries(mod, df: pd.DataFrame, entry_interval_min: int) -> Optional[pd.DataFrame]:
+    """戦略を月の全バーに当て、エントリーが立ったバーだけを side・session 付きで返す。
+    S3 本体と月次シムが同じ手順を通るよう切り出してある。立たなければ None。"""
+    if df.empty:
+        return None
+
+    result = mod.apply_entry_flag(df.copy(), getattr(mod, "PARAMS", {}))
+    if result is None or result.empty:
+        return None
+
+    if "entry_flag" not in result.columns:
+        result["entry_flag"] = 0
+    result["entry_flag"] = (
+        pd.to_numeric(result["entry_flag"], errors="coerce").fillna(0).astype(int)
+    )
+
+    if "buy_sell" in result.columns:
+        s = result["buy_sell"].astype("string")
+        result["side"] = s.where(s.isin(["BUY", "SELL"]), "")
+    elif "side" in result.columns:
+        s = result["side"].astype("string")
+        result["side"] = s.where(s.isin(["BUY", "SELL"]), "")
+    else:
+        result["side"] = ""
+
+    result = _add_session_column(result)
+    result = result[result["entry_flag"] == 1].copy()
+    if result.empty:
+        return None
+
+    if entry_interval_min > 0:
+        minute = pd.to_datetime(result["time_utc"], utc=True, errors="coerce").dt.minute
+        result = result[(minute % entry_interval_min) == 0].copy()
+        if result.empty:
+            return None
+
+    return result
 
 
 def _process_strategy_month(
@@ -128,50 +205,23 @@ def _process_strategy_month(
     out_path: Path,
     entry_interval_min: int,
 ) -> bool:
+    params = {"entry_interval_min": entry_interval_min}
     if out_path.exists():
         in_mtime = max(strategy_path.stat().st_mtime, parquet_path.stat().st_mtime)
-        if out_path.stat().st_mtime >= in_mtime:
+        fresh = out_path.stat().st_mtime >= in_mtime
+        # 引数を残していない旧い出力は meta が空なので、違う引数として作り直す
+        if fresh and read_meta(out_path).get(META_KEY_S3) == params:
             return False
 
     try:
         mod = _load_strategy(strategy_path)
-        df = pd.read_parquet(parquet_path)
-
-        if df.empty:
+        result = compute_entries(mod, pd.read_parquet(parquet_path), entry_interval_min)
+        if result is None:
+            # 古い引数で作った出力が残ると、後段がそれを今回の結果として読む
+            out_path.unlink(missing_ok=True)
             return False
 
-        result = mod.apply_entry_flag(df.copy(), getattr(mod, "PARAMS", {}))
-        if result is None or result.empty:
-            return False
-
-        if "entry_flag" not in result.columns:
-            result["entry_flag"] = 0
-        result["entry_flag"] = (
-            pd.to_numeric(result["entry_flag"], errors="coerce").fillna(0).astype(int)
-        )
-
-        if "buy_sell" in result.columns:
-            s = result["buy_sell"].astype("string")
-            result["side"] = s.where(s.isin(["BUY", "SELL"]), "")
-        elif "side" in result.columns:
-            s = result["side"].astype("string")
-            result["side"] = s.where(s.isin(["BUY", "SELL"]), "")
-        else:
-            result["side"] = ""
-
-        result = _add_session_column(result)
-        result = result[result["entry_flag"] == 1].copy()
-        if result.empty:
-            return False
-
-        if entry_interval_min > 0:
-            minute = pd.to_datetime(result["time_utc"], utc=True, errors="coerce").dt.minute
-            result = result[(minute % entry_interval_min) == 0].copy()
-            if result.empty:
-                return False
-
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        result.to_parquet(out_path, index=False)
+        write_parquet_atomic(result, out_path, {META_KEY_S3: params})
         return True
 
     except Exception as e:

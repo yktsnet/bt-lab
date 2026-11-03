@@ -2,6 +2,7 @@ import concurrent.futures
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 import core.s5_position_engine as s5
 
@@ -167,3 +168,106 @@ def test_run_end_to_end(monkeypatch, tmp_path):
 
     out_path = tmp_path / "pos_events" / "rsi_zone" / "a20" / "year=2026" / "01.parquet"
     assert out_path.exists()
+
+
+def _setup_month(tmp_path):
+    parquet_root = tmp_path / "parquet_data"
+    positions_root = tmp_path / "positions"
+    events_root = tmp_path / "pos_events"
+    times = pd.date_range("2026-01-05", periods=10, freq="5min", tz="UTC")
+    bars = pd.DataFrame({
+        "time_utc": times,
+        "open": [100.0] * 10, "high": [100.05] * 10, "low": [99.95] * 10, "close": [100.0] * 10,
+    })
+    (parquet_root / "year=2026").mkdir(parents=True)
+    bars.to_parquet(parquet_root / "year=2026" / "01.parquet", index=False)
+    sig_dir = positions_root / "rsi_zone" / "a20" / "year=2026"
+    sig_dir.mkdir(parents=True)
+    pd.DataFrame({
+        "time_utc": [times[0]], "entry_flag": [1], "side": ["BUY"], "session": ["TYO"],
+    }).to_parquet(sig_dir / "01.parquet", index=False)
+    return parquet_root, positions_root, events_root
+
+
+def _process(tmp_path, env):
+    roots = (tmp_path / "parquet_data", tmp_path / "positions", tmp_path / "pos_events")
+    if not roots[0].exists():
+        _setup_month(tmp_path)
+    return s5._process_one("rsi_zone", "a20", 2026, 1, *roots, env)
+
+
+def test_process_one_skips_when_fresh_and_trade_args_unchanged(tmp_path):
+    env = {"RR_TP_PIPS": "50", "RR_SL_PIPS": "50"}
+    assert _process(tmp_path, env) == "wrote"
+    assert _process(tmp_path, env) == "skipped"
+
+
+@pytest.mark.parametrize("changed", [
+    {"PIP_SIZE": "0.1"},
+    {"RR_TP_PIPS": "40"},
+    {"RR_SL_PIPS": "15"},
+    {"LOT_PER_ENTRY": "0.5"},
+    {"MAX_ENTRIES_PER_STRAT": "1"},
+    {"ABN_BURST_HL_PIPS": "25"},
+    {"ABN_FORWARD_BLOCK_BARS": "1"},
+    {"EOD_UTC": "00:20"},
+])
+def test_process_one_recomputes_when_any_trade_arg_changes(tmp_path, changed):
+    base = {"RR_TP_PIPS": "50", "RR_SL_PIPS": "50"}
+    assert _process(tmp_path, base) == "wrote"
+    assert _process(tmp_path, {**base, **changed}) == "wrote"
+
+
+def test_process_one_recomputes_output_without_recorded_args(tmp_path):
+    parquet_root, positions_root, events_root = _setup_month(tmp_path)
+    out_path = events_root / "rsi_zone" / "a20" / "year=2026" / "01.parquet"
+    out_path.parent.mkdir(parents=True)
+    # この変更より前に作った出力: 売買の引数を残していない
+    pd.DataFrame({"type": ["open"]}).to_parquet(out_path, index=False)
+
+    assert _process(tmp_path, {}) == "wrote"
+    assert "close_price" in pd.read_parquet(out_path).columns
+
+
+def test_process_one_removes_stale_output_when_no_event_remains(tmp_path):
+    assert _process(tmp_path, {"RR_TP_PIPS": "50", "RR_SL_PIPS": "50"}) == "wrote"
+    out_path = tmp_path / "pos_events" / "rsi_zone" / "a20" / "year=2026" / "01.parquet"
+    assert out_path.exists()
+
+    # 急変動の幅を全バーの値幅（10 pips）より小さくすると、どのバーでも建てられない
+    assert _process(tmp_path, {"RR_TP_PIPS": "50", "RR_SL_PIPS": "50", "ABN_BURST_HL_PIPS": "5"}) == "skipped"
+    assert not out_path.exists()
+
+
+def test_process_one_write_failure_leaves_existing_output_untouched(monkeypatch, tmp_path):
+    env = {"RR_TP_PIPS": "50", "RR_SL_PIPS": "50"}
+    assert _process(tmp_path, env) == "wrote"
+    out_path = tmp_path / "pos_events" / "rsi_zone" / "a20" / "year=2026" / "01.parquet"
+    original = out_path.read_bytes()
+
+    import pyarrow.parquet as pq
+    monkeypatch.setattr(pq, "write_table", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+
+    assert _process(tmp_path, {**env, "RR_TP_PIPS": "40"}) == "error"
+    assert out_path.read_bytes() == original
+
+
+def test_s5_tp_40_then_s6_without_args_gives_40_minus_spread(tmp_path):
+    import core.s6_position_pips as s6
+
+    parquet_root, positions_root, events_root = _setup_month(tmp_path)
+    # 次のバーで建てた後、40 pips 上のバーで TP に届く
+    bars_path = parquet_root / "year=2026" / "01.parquet"
+    bars = pd.read_parquet(bars_path)
+    bars.loc[3, "high"] = 100.0 + 0.45
+    bars.to_parquet(bars_path, index=False)
+
+    env = {"RR_TP_PIPS": "40", "RR_SL_PIPS": "50", "ABN_BURST_HL_PIPS": "100"}
+    assert _process(tmp_path, env) == "wrote"
+    out_path = events_root / "rsi_zone" / "a20" / "year=2026" / "01.parquet"
+    assert s6._process_one(out_path, {}) == "wrote"
+
+    out = pd.read_parquet(out_path)
+    tp = out[(out["type"] == "close") & (out["abnormal"] == "TP")]
+    assert len(tp) == 1
+    assert tp["pips_net"].iloc[0] == pytest.approx(40 - 0.3)

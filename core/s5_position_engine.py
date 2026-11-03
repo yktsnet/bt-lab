@@ -22,6 +22,9 @@ from lib.env_paths import (
     get_parquet_root as get_parquet_dir,
 )
 from lib.cli_common import add_trading_args, apply_env_overrides
+from core.s3_calc_positions import read_meta, write_parquet_atomic, META_PREFIX
+
+META_KEY_S5 = META_PREFIX + "s5"
 
 
 def parse_args() -> argparse.Namespace:
@@ -66,15 +69,30 @@ def _parse_year_month(path: Path) -> tuple[int, int]:
     return year, month
 
 
+def _trade_params(env: dict) -> dict:
+    """出力の中身を決める売買の引数。出力に残して、次の実行で今回の値と比べる。"""
+    return {
+        "pip_size": _fv(env, "PIP_SIZE", 0.01),
+        "tp_pips": _fv(env, "RR_TP_PIPS", 30.0),
+        "sl_pips": _fv(env, "RR_SL_PIPS", 10.0),
+        "lot": _fv(env, "LOT_PER_ENTRY", 0.1),
+        "max_entries": _iv(env, "MAX_ENTRIES_PER_STRAT", 3),
+        "abn_burst_pips": _fv(env, "ABN_BURST_HL_PIPS", 30.0),
+        "abn_forward_block_bars": _iv(env, "ABN_FORWARD_BLOCK_BARS", 3),
+        "eod_utc": str(env.get("EOD_UTC", "17:00")),
+    }
+
+
 def _build_positions(rows: list[dict], ident: str, env: dict) -> list[dict]:
-    pip = _fv(env, "PIP_SIZE", 0.01)
-    tp_d = _fv(env, "RR_TP_PIPS", 30.0) * pip
-    sl_d = _fv(env, "RR_SL_PIPS", 10.0) * pip
-    lot = _fv(env, "LOT_PER_ENTRY", 0.1)
-    maxn = _iv(env, "MAX_ENTRIES_PER_STRAT", 3)
-    sp = _fv(env, "ABN_BURST_HL_PIPS", 30.0)
-    spfw = _iv(env, "ABN_FORWARD_BLOCK_BARS", 3)
-    eod_m = _hm(env.get("EOD_UTC", "17:00"))
+    prm = _trade_params(env)
+    pip = prm["pip_size"]
+    tp_d = prm["tp_pips"] * pip
+    sl_d = prm["sl_pips"] * pip
+    lot = prm["lot"]
+    maxn = prm["max_entries"]
+    sp = prm["abn_burst_pips"]
+    spfw = prm["abn_forward_block_bars"]
+    eod_m = _hm(prm["eod_utc"])
 
     out = []
     opens = []
@@ -244,6 +262,31 @@ def _build_positions(rows: list[dict], ident: str, env: dict) -> list[dict]:
     return out
 
 
+def build_events(
+    bars: pd.DataFrame, sig: pd.DataFrame, ident: str, env: dict
+) -> list[dict]:
+    """月の価格 bars とエントリー sig（S3 の出力）から、建てた・閉じたイベントを作る。
+    月次シムが S5 と同じ手順を通るよう切り出してある。"""
+    bars = bars[["time_utc", "open", "high", "low", "close"]].copy()
+    bars["time_utc"] = pd.to_datetime(bars["time_utc"], utc=True)
+    bars = bars.sort_values("time_utc").reset_index(drop=True)
+
+    sig = sig[["time_utc", "entry_flag", "side", "session"]].copy()
+    sig["time_utc"] = pd.to_datetime(sig["time_utc"], utc=True)
+
+    df = bars.merge(sig, on="time_utc", how="left")
+    df["entry_flag"] = df["entry_flag"].fillna(0).astype(int)
+    df["side"] = df["side"].fillna("").astype(str)
+    df["session"] = df["session"].fillna("").astype(str)
+
+    # セッション廃止: 00:00-17:00 全バーをエントリー可能に
+    df["is_own_session"] = (
+        (df["time_utc"].dt.hour >= 0) & (df["time_utc"].dt.hour < 17)
+    ).astype(int)
+
+    return _build_positions(df.to_dict("records"), ident=ident, env=env)
+
+
 def _process_one(
     tid: str,
     slug: str,
@@ -261,45 +304,29 @@ def _process_one(
     if not pq_path.exists() or not sig_path.exists():
         return "skipped"
 
+    params = _trade_params(env)
     if out_path.exists():
         in_mtime = max(pq_path.stat().st_mtime, sig_path.stat().st_mtime)
-        if out_path.stat().st_mtime >= in_mtime:
+        fresh = out_path.stat().st_mtime >= in_mtime
+        # 引数を残していない旧い出力は meta が空なので、違う引数として作り直す
+        if fresh and read_meta(out_path).get(META_KEY_S5) == params:
             return "skipped"
 
     try:
         bars = pd.read_parquet(
             pq_path, columns=["time_utc", "open", "high", "low", "close"]
         )
-        bars["time_utc"] = pd.to_datetime(bars["time_utc"], utc=True)
-        bars = bars.sort_values("time_utc").reset_index(drop=True)
-
         sig = pd.read_parquet(
             sig_path, columns=["time_utc", "entry_flag", "side", "session"]
         )
-        sig["time_utc"] = pd.to_datetime(sig["time_utc"], utc=True)
-
-        df = bars.merge(
-            sig[["time_utc", "entry_flag", "side", "session"]],
-            on="time_utc",
-            how="left",
-        )
-        df["entry_flag"] = df["entry_flag"].fillna(0).astype(int)
-        df["side"] = df["side"].fillna("").astype(str)
-        df["session"] = df["session"].fillna("").astype(str)
-
-        # セッション廃止: 00:00-17:00 全バーをエントリー可能に
-        df["is_own_session"] = (
-            (df["time_utc"].dt.hour >= 0) & (df["time_utc"].dt.hour < 17)
-        ).astype(int)
-
-        rows = df.to_dict("records")
-        result = _build_positions(rows, ident=tid, env=env)
+        result = build_events(bars, sig, tid, env)
 
         if not result:
+            # 古い引数で作ったイベントが残ると、後段がそれを今回の結果として読む
+            out_path.unlink(missing_ok=True)
             return "skipped"
 
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame(result).to_parquet(out_path, index=False)
+        write_parquet_atomic(pd.DataFrame(result), out_path, {META_KEY_S5: params})
         return "wrote"
 
     except Exception as e:

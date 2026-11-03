@@ -134,6 +134,67 @@ def test_process_strategy_month_skips_when_output_is_fresh(tmp_path):
     assert s3._process_strategy_month(strategy_path, parquet_path, out_path, entry_interval_min=0) is False
 
 
+def _fresh_inputs(tmp_path):
+    strategy_path = tmp_path / "a20.py"
+    strategy_path.write_text(STRATEGY_SRC)
+    parquet_path = tmp_path / "01.parquet"
+    # 5分足の全バーで entry_flag が立つ戦略にして、間隔の違いが出力に出るようにする
+    df = _bars()
+    df["rsi14"] = 10
+    df.to_parquet(parquet_path, index=False)
+    return strategy_path, parquet_path, tmp_path / "out.parquet"
+
+
+def test_process_strategy_month_recomputes_when_entry_interval_changes(tmp_path):
+    strategy_path, parquet_path, out_path = _fresh_inputs(tmp_path)
+
+    assert s3._process_strategy_month(strategy_path, parquet_path, out_path, entry_interval_min=5) is True
+    n_5 = len(pd.read_parquet(out_path))
+
+    # 出力は入力より新しいが、作ったときの間隔と違うので計算し直す
+    assert s3._process_strategy_month(strategy_path, parquet_path, out_path, entry_interval_min=30) is True
+    result = pd.read_parquet(out_path)
+    assert len(result) < n_5
+    assert (result["time_utc"].dt.minute % 30 == 0).all()
+
+    # 同じ間隔なら従来どおり飛ばす
+    assert s3._process_strategy_month(strategy_path, parquet_path, out_path, entry_interval_min=30) is False
+
+
+def test_process_strategy_month_recomputes_output_without_recorded_interval(tmp_path):
+    strategy_path, parquet_path, out_path = _fresh_inputs(tmp_path)
+    # この変更より前に作った出力: 間隔を残していない
+    pd.DataFrame({"time_utc": [pd.Timestamp("2026-01-05", tz="UTC")], "entry_flag": [1]}).to_parquet(
+        out_path, index=False
+    )
+
+    assert s3._process_strategy_month(strategy_path, parquet_path, out_path, entry_interval_min=30) is True
+    assert len(pd.read_parquet(out_path)) > 1
+
+
+def test_process_strategy_month_removes_stale_output_when_no_entry_remains(tmp_path):
+    strategy_path, parquet_path, out_path = _fresh_inputs(tmp_path)
+    assert s3._process_strategy_month(strategy_path, parquet_path, out_path, entry_interval_min=5) is True
+
+    # 戦略を変えてエントリーが1つも立たなくすると、前の引数で作った出力は消える
+    # 置き換えの長さを変える。同じ長さだと mtime と大きさが同じになり、古い .pyc が読まれる
+    strategy_path.write_text(STRATEGY_SRC.replace("<= 20", "<= -1000"))
+    assert s3._process_strategy_month(strategy_path, parquet_path, out_path, entry_interval_min=30) is False
+    assert not out_path.exists()
+
+
+def test_process_strategy_month_write_failure_leaves_existing_output_untouched(monkeypatch, tmp_path):
+    strategy_path, parquet_path, out_path = _fresh_inputs(tmp_path)
+    assert s3._process_strategy_month(strategy_path, parquet_path, out_path, entry_interval_min=5) is True
+    original = out_path.read_bytes()
+
+    import pyarrow.parquet as pq
+    monkeypatch.setattr(pq, "write_table", lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+
+    assert s3._process_strategy_month(strategy_path, parquet_path, out_path, entry_interval_min=30) is False
+    assert out_path.read_bytes() == original
+
+
 def test_process_strategy_month_honors_real_rsi_zone_template_contract(monkeypatch, tmp_path):
     """実在するstrategies_md/oscillator/rsi_zone/template.pyがS2で生成され、S3を通した際に
     apply_entry_flagの3カラム契約(entry_flag/buy_sell/trend_dir, conventions.md)を満たすこと。"""

@@ -7,12 +7,6 @@ import pytest
 import core.s_monthly_sim as sim
 
 
-def test_hm_parses_hhmm_and_iso():
-    assert sim._hm("17:00") == 17 * 60
-    assert sim._hm("2026-01-05T09:30:00Z") == 9 * 60 + 30
-    assert sim._hm(None) is None
-
-
 def test_trading_days_in_month_excludes_weekends():
     days = sim.trading_days_in_month(date(2026, 1, 1))
     assert all(d.weekday() < 5 for d in days)
@@ -55,26 +49,6 @@ def test_load_strategies_from_snapshot_missing_snapshot_returns_empty(tmp_path, 
     files = sim._load_strategies_from_snapshot("2026-05", tmp_path / "rank", tmp_path / "strategies")
     assert files == []
     assert "snapshot not found" in capsys.readouterr().out
-
-
-def _row(t, o, h, l, c, entry_flag=0, side="", own=1):
-    return {
-        "time_utc": t, "open": o, "high": h, "low": l, "close": c,
-        "entry_flag": entry_flag, "side": side, "is_own_session": own,
-    }
-
-
-def test_build_positions_records_tp_close():
-    env = {"PIP_SIZE": "0.01", "RR_TP_PIPS": "10", "RR_SL_PIPS": "5", "SPREAD_PIPS": "0.0"}
-    rows = [
-        _row("2026-01-05T01:00", 100.0, 100.05, 99.95, 100.0, entry_flag=1, side="BUY"),
-        _row("2026-01-05T01:05", 100.0, 100.05, 99.95, 100.0),
-        _row("2026-01-05T01:10", 100.10, 100.15, 100.05, 100.12),
-    ]
-    out = sim._build_positions(rows, env)
-    assert len(out) == 1
-    assert out[0]["why"] == "TP"
-    assert out[0]["pips_net"] == 10.0
 
 
 def test_run_writes_daily_csv_for_snapshot_strategies(monkeypatch, tmp_path):
@@ -179,3 +153,112 @@ def test_run_skips_month_without_snapshot(monkeypatch, tmp_path, capsys):
     )
     sim.run(args)
     assert "no snapshot for 2026-01" in capsys.readouterr().out
+
+
+# 月次シムと S3 → S5 → S6 の突き合わせ -------------------------------------------
+
+PARITY_STRATEGY = (
+    "import numpy as np\n"
+    "def apply_entry_flag(df, params):\n"
+    "    df = df.copy()\n"
+    "    # 'feat' は S1c が焼き込んだ列を想定（compute_all では作れない）\n"
+    "    df['entry_flag'] = (df['feat'] > 0).astype(int)\n"
+    "    k = np.arange(len(df)) % 7\n"
+    "    df['buy_sell'] = np.where(k < 3, 'BUY', np.where(k < 5, 'SELL', ''))\n"
+    "    return df\n"
+)
+
+
+def _setup_sim_month(tmp_path, strategy_src):
+    rank_root = tmp_path / "rank" / "all"
+    snap_dir = rank_root / "snapshots" / "2026-01"
+    snap_dir.mkdir(parents=True)
+    sdir = tmp_path / "strategies" / "rsi_zone"
+    sdir.mkdir(parents=True)
+    (sdir / "a20.py").write_text(strategy_src)
+    pd.DataFrame([{"id": "rsi_zone", "slug": "a20", "pips_avg_per_entry": 0.9}]).to_csv(
+        snap_dir / "rank_by_pips_avg.csv", index=False
+    )
+
+    # 平日5日分の M5。17:00 を越えるバーも含め、日をまたぐ状態も通す
+    times = pd.date_range("2026-02-02", "2026-02-06 23:55", freq="5min", tz="UTC")
+    rng = np.random.RandomState(7)
+    close = 100 + np.cumsum(rng.randn(len(times)) * 0.04)
+    df = pd.DataFrame({
+        "time_utc": times,
+        "open": close + rng.randn(len(times)) * 0.01,
+        "high": close + 0.05,
+        "low": close - 0.05,
+        "close": close,
+        "feat": rng.randn(len(times)),
+    })
+    pq_dir = tmp_path / "parquet_data" / "year=2026"
+    pq_dir.mkdir(parents=True)
+    df.to_parquet(pq_dir / "02.parquet", index=False)
+    return sdir / "a20.py", pq_dir / "02.parquet"
+
+
+def _sim_args(**kw):
+    base = dict(
+        pip_size=None, tp_pips=None, sl_pips=None, max_entries=None,
+        abn_burst_pips=None, abn_forward_block_bars=None, spread_pips=None, month="2026-02",
+    )
+    base.update(kw)
+    return sim.argparse.Namespace(**base)
+
+
+def test_run_matches_s3_s5_s6_entries_and_pips_per_day(monkeypatch, tmp_path):
+    import core.s3_calc_positions as s3
+    import core.s5_position_engine as s5
+    import core.s6_position_pips as s6
+
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    monkeypatch.delenv("ENTRY_INTERVAL_MIN", raising=False)
+    strategy_path, pq_path = _setup_sim_month(tmp_path, PARITY_STRATEGY)
+
+    sim.run(_sim_args(tp_pips="8", sl_pips="5"))
+
+    # 同じ戦略・月・引数を S3（既定の30分間隔）→ S5 → S6 に通す
+    pos = tmp_path / "positions" / "rsi_zone" / "a20" / "year=2026" / "02.parquet"
+    assert s3._process_strategy_month(strategy_path, pq_path, pos, entry_interval_min=30) is True
+    env = {"RR_TP_PIPS": "8", "RR_SL_PIPS": "5"}
+    assert s5._process_one(
+        "rsi_zone", "a20", 2026, 2, tmp_path / "parquet_data", tmp_path / "positions",
+        tmp_path / "pos_events", env,
+    ) == "wrote"
+    ev_path = tmp_path / "pos_events" / "rsi_zone" / "a20" / "year=2026" / "02.parquet"
+    assert s6._process_one(ev_path, env) == "wrote"
+
+    ev = pd.read_parquet(ev_path)
+    closes = ev[ev["type"] == "close"].copy()
+    closes["day"] = pd.to_datetime(closes["time_utc"], utc=True).dt.strftime("%Y-%m-%d")
+    expected = closes.groupby("day")["pips_net"].agg(["count", "sum"])
+    assert expected["count"].sum() > 5  # 突き合わせる中身がある
+    assert {"TP", "SL"} <= set(closes["abnormal"])  # TP・SL で閉じた行も含めて合わせる
+
+    out_dir = tmp_path / "monthly" / "2026-02" / "ALL"
+    for day, row in expected.iterrows():
+        got = pd.read_csv(out_dir / f"{day}.csv").iloc[0]
+        assert got["entries"] == row["count"], day
+        assert got["pips_sum"] == pytest.approx(row["sum"], abs=0.011), day
+
+
+def test_run_does_not_open_positions_on_bars_without_side(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    monkeypatch.delenv("ENTRY_INTERVAL_MIN", raising=False)
+    src = (
+        "def apply_entry_flag(df, params):\n"
+        "    df = df.copy()\n"
+        "    df['entry_flag'] = 1\n"
+        "    df['buy_sell'] = ''\n"
+        "    return df\n"
+    )
+    _setup_sim_month(tmp_path, src)
+
+    sim.run(_sim_args())
+
+    out_dir = tmp_path / "monthly" / "2026-02" / "ALL"
+    csvs = list(out_dir.glob("*.csv"))
+    assert csvs
+    for c in csvs:
+        assert (pd.read_csv(c)["entries"] == 0).all()

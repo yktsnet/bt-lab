@@ -5,15 +5,11 @@ pos_events/ の各 parquet に pips_net 列を付与して上書きする。
 
 計算ルール:
   type=open  行 → pips_net = None
-  type=close 行:
-    abnormal=TP    → pips_gross = +RR_TP_PIPS
-    abnormal=SL    → pips_gross = -RR_SL_PIPS
-    その他         → pips_gross = sign × (close_price - entry) / PIP_SIZE
+  type=close 行 → pips_gross = sign × (close_price - entry) / PIP_SIZE
+                  （TP/SL で閉じた行も同じ。S5 が close_price に TP/SL の価格を入れている）
   pips_net = pips_gross - SPREAD_PIPS
 
 環境変数:
-  RR_TP_PIPS    (default: 30)
-  RR_SL_PIPS    (default: 10)
   PIP_SIZE      (default: 0.01)
   SPREAD_PIPS   (default: 0.3)
   S6_JOBS       (default: auto)
@@ -31,11 +27,19 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from lib.env_paths import get_backtest_data_root
 from lib.cli_common import add_trading_args, apply_env_overrides
+from core.s3_calc_positions import read_meta, write_parquet_atomic, META_PREFIX
+
+META_KEY_S6 = META_PREFIX + "s6"
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="S6: pips_net列の付与")
     add_trading_args(p, spread=True)
+    # TP/SL は S5 が close_price に反映済みで、S6 は価格差から pips を出す。
+    # 共通引数として受け取るだけで、S6 の結果には効かない。
+    for action in p._actions:
+        if action.dest in ("tp_pips", "sl_pips"):
+            action.help = "S6 では効かない（S5 に渡した値が close_price に入っている）"
     p.add_argument("--jobs", type=int, default=None, help="並列プロセス数 (env: S6_JOBS, default: cpu_count)")
     return p.parse_args()
 
@@ -54,34 +58,28 @@ def _iv(env, k, d):
         return int(d)
 
 
+def _pips_params(env: dict) -> dict:
+    return {"pip_size": _fv(env, "PIP_SIZE", 0.01), "spread_pips": _fv(env, "SPREAD_PIPS", 0.3)}
+
+
 def _calc_pips(df: pd.DataFrame, env: dict) -> pd.DataFrame:
-    tp_pips  = _fv(env, "RR_TP_PIPS", 30.0)
-    sl_pips  = _fv(env, "RR_SL_PIPS", 10.0)
-    pip      = _fv(env, "PIP_SIZE", 0.01)
-    spread   = _fv(env, "SPREAD_PIPS", 0.3)
+    prm = _pips_params(env)
+    pip = prm["pip_size"]
+    spread = prm["spread_pips"]
 
     close_rows = df["type"] == "close"
     pips_net = pd.Series([None] * len(df), dtype="Float64")
 
     for i, row in df[close_rows].iterrows():
-        abn  = str(row.get("abnormal", "")).strip().upper()
         side = str(row.get("side", "")).strip().upper()
         sign = 1.0 if side == "BUY" else -1.0
 
-        if abn == "TP":
-            gross = tp_pips
-        elif abn == "SL":
-            gross = -sl_pips
-        else:
-            cp = row.get("close_price")
-            en = row.get("entry")
-            if cp is None or en is None or pd.isna(cp) or pd.isna(en):
-                gross = None
-            else:
-                gross = sign * (float(cp) - float(en)) / pip
-
-        if gross is not None:
-            pips_net[i] = round(gross - spread, 2)
+        cp = row.get("close_price")
+        en = row.get("entry")
+        if cp is None or en is None or pd.isna(cp) or pd.isna(en):
+            continue
+        gross = sign * (float(cp) - float(en)) / pip
+        pips_net[i] = round(gross - spread, 2)
 
     df = df.copy()
     df["pips_net"] = pips_net
@@ -90,16 +88,17 @@ def _calc_pips(df: pd.DataFrame, env: dict) -> pd.DataFrame:
 
 def _process_one(path: Path, env: dict) -> str:
     try:
+        params = _pips_params(env)
+        meta = read_meta(path)
         df = pd.read_parquet(path)
 
-        # 既に pips_net があってclose行に値が入っていればスキップ
-        if "pips_net" in df.columns:
-            close_mask = df["type"] == "close"
-            if close_mask.any() and df.loc[close_mask, "pips_net"].notna().all():
-                return "skipped"
+        # 引数を残していない旧いファイルは meta が空なので、付け直す
+        if "pips_net" in df.columns and meta.get(META_KEY_S6) == params:
+            return "skipped"
 
         df = _calc_pips(df, env)
-        df.to_parquet(path, index=False)
+        meta[META_KEY_S6] = params
+        write_parquet_atomic(df, path, meta)
         return "wrote"
     except Exception as e:
         print(f"  ERROR {path}: {e}", flush=True)
