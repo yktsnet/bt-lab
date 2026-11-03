@@ -1,3 +1,39 @@
+## PR記録: fix: 引数を変えたら計算し直し、S6・月次シム・S1c の計算を S3〜S5 と registry に揃える
+issue: 04 (04_rerun-and-calc-consistency.md)
+PR: https://github.com/yktsnet/drip-sim/pull/18
+
+## 変更内容
+- S3・S5・S6 は、出力を作ったときの引数を parquet のスキーマメタデータ（`drip_sim.s3` / `s5` / `s6`）に残す。次に流すときは今回の値と比べ、違えば計算し直す。引数を残していない旧い出力も計算し直す。書き込みは `.tmp` → `os.replace` に揃えた
+- S3・S5 は、計算し直した結果エントリー・イベントが1つも残らないとき、古い引数で作った出力を消す
+- S6 は TP/SL の分岐をやめ、閉じた行はすべて価格差から pips を出す。`--tp-pips`・`--sl-pips` は引数として残し、効かないことを help に書いた
+- 月次シムは S3 の `compute_entries`・S5 の `build_events`・S6 の `_calc_pips` を呼ぶ。月の parquet（S1c が焼き込んだ列）に戦略を当てて30分間隔で絞り、閉じた日ごとに数える。BUY・SELL でないバーでは建てない
+- S1c は registry の `precompute` の列だけを焼き込む。`compute_all` が計算しない列があれば、その名前を出して終了コード 1 で失敗する
+- docs/overview.md（S6・月次シム・全体の決まり・S1c の行）と docs/guarantees.md（§9・§11・§13・§14・§17）を更新した
+
+## 保証
+- S3 は間隔が違えば計算し直す → `test_process_strategy_month_recomputes_when_entry_interval_changes` / `_recomputes_output_without_recorded_interval`
+- S5 は売買の引数が違えば計算し直す → `test_process_one_recomputes_when_any_trade_arg_changes`（8つの引数）/ `_skips_when_fresh_and_trade_args_unchanged` / `_recomputes_output_without_recorded_args`
+- S6 は PIP_SIZE・スプレッドが違えば付け直す → `test_process_one_skips_when_done_with_same_pip_size_and_spread` / `_recomputes_when_spread_or_pip_size_changes` / `_recomputes_file_that_has_pips_net_but_no_recorded_args`
+- S6 は TP/SL の行も価格差から出す → `test_calc_pips_tp_and_sl_are_computed_from_price_delta_not_args`, `test_s5_tp_40_then_s6_without_args_gives_40_minus_spread`
+- 月次シムの件数・pips が S3→S5→S6 と一致する → `test_run_matches_s3_s5_s6_entries_and_pips_per_day`
+- 月次シムは BUY・SELL でないバーでは建てない → `test_run_does_not_open_positions_on_bars_without_side`
+- S1c は registry に従う → `test_enrich_file_adds_only_columns_listed_in_registry` / `_fails_naming_registry_columns_compute_all_lacks` / `test_main_exits_nonzero_when_registry_has_unknown_column` / `test_real_registry_columns_are_all_computed_by_compute_all`
+- 廃止: TP/SL を固定 pips で出す保証（テストを書き換えた）。月次シムが独自に持っていた `_hm`・`_build_positions` はなくなり、そのテストも消した
+- 追加（user 承認済み）: 古い出力の削除、S3・S5・S6 の書き込み失敗時に元のファイルを壊さないこと
+
+## 静的確認結果
+- `pytest -q`: 255 passed
+- 合成データで `bt.py all` → `s5 --tp-pips 40 --sl-pips 15` → `s6` と流した。TP 行の `pips_net` は 39.7、SL 行は -15.3 になった。同じ引数で流し直すと全件 skipped になった
+
+## 確認者の判定
+| # | 項目 | 判定 |
+|---|---|---|
+| 1 | `pytest -q` が通る（255 passed） | 合 |
+| 2 | 新たに宣言する保証がテストで確かめられている | 合 |
+| 3 | 合成データで s5 TP 40 → s6 として、TP 行の pips_net が 39.7 になる | 合 |
+
+---
+
 ## 引数を変えたら計算し直し、S6・月次シム・S1c の計算を S3〜S5 と registry に揃える
 id: 04
 branch-slug: rerun-and-calc-consistency
