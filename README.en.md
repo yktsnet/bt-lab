@@ -57,6 +57,8 @@ Same 4-way split as the phases in `bt.py flow`'s interactive menu (the `PHASES` 
 
 Outside the pipeline, `bt.py eval` (`core/s_selection_eval.py`) measures whether s8's selection predicts the following month. For each month-end snapshot left by `monthly-backfill`, it compares the next month's `pips_sum_total` of the selected candidates against all candidates and writes `rank/all/eval/selection_eval.csv`.
 
+For a walkthrough of what each stage decides and which criteria a candidate must pass, see [docs/overview.md](docs/overview.md) (Japanese).
+
 ## Tech Stack
 
 | Layer | Technology | Reason |

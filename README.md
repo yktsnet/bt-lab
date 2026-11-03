@@ -57,6 +57,8 @@ AI/スクリプトからの非対話実行には`bin/bt <stage> [args]`（シェ
 
 パイプラインの外に、s8の選抜が翌月の成績を当てているかを測る`bt.py eval`（`core/s_selection_eval.py`）がある。`monthly-backfill`が残した月末スナップショットごとに、選ばれた候補の翌月の`pips_sum_total`を全候補と比べ、`rank/all/eval/selection_eval.csv`に書く。
 
+各段が何を判断し、戦略候補がどの基準で残るかを通しで追うには [docs/overview.md](docs/overview.md) を読む。
+
 ## Tech Stack
 
 | Layer | Technology | Reason |
