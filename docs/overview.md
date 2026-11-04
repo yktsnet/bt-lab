@@ -16,13 +16,13 @@ M5 足の価格データと、条件を書いた戦略の雛形（kind）を受�
 
 ```mermaid
 flowchart TD
-  D[M5 足の JSONL] --> ALL[bt all<br/>S1b〜S8]
-  K[strategies_md の kind] --> ALL
-  ALL --> R[rank/all の順位表]
-  ALL --> BF[bt monthly-backfill<br/>過去の各月末で S4・S8 をやり直す]
-  BF --> SN[rank/all/snapshots/月]
-  SN --> EV[bt eval<br/>翌月の成績と突き合わせる]
-  EV --> E[rank/all/eval/selection_eval.csv]
+  D[📈 M5 足の JSONL] --> ALL[⚙️ bt all<br/>S1b〜S8]
+  K[🏷️ strategies_md の kind] --> ALL
+  ALL --> R[🏆 rank/all の順位表]
+  ALL --> BF[⏪ bt monthly-backfill<br/>過去の各月末で S4・S8 をやり直す]
+  BF --> SN[📸 rank/all/snapshots/月]
+  SN --> EV[🔍 bt eval<br/>翌月の成績と突き合わせる]
+  EV --> E[📄 rank/all/eval/selection_eval.csv]
 ```
 
 1. 価格データを `$DRIP_SIM_DATA/bt_data/*_m5_*.jsonl` に置く。形式と取得元は [docs/fetch-data.md](fetch-data.md) にある
@@ -80,18 +80,18 @@ S5 が TP・SL の価格を閉じた価格として入れるので、TP・SL の
 
 ```mermaid
 flowchart TD
-  G[PARAMS_GRID の全組] --> F{特徴量が<br/>registry にあるか}
-  F -- ない --> X1[S2 で作らない]
-  F -- ある --> R{エントリー率が<br/>0.01〜0.5 か}
-  R -- 外れる --> B[Ban]
-  R -- 収まる --> J{先に残った候補と<br/>Jaccard 0.3 以上か}
+  G[🧩 PARAMS_GRID の全組] --> F{🔎 特徴量が<br/>registry にあるか}
+  F -- ない --> X1[🚫 S2 で作らない]
+  F -- ある --> R{📊 エントリー率が<br/>0.01〜0.5 か}
+  R -- 外れる --> B[⛔ Ban]
+  R -- 収まる --> J{👯 先に残った候補と<br/>Jaccard 0.3 以上か}
   J -- はい --> B
-  J -- いいえ --> DD{RF 2.0 以上・回復 6 か月以下<br/>・総 pips 0 以上か}
-  B --> X2[S8 で外す]
-  DD -- いいえ --> X3[dd_filtered.csv]
-  DD -- はい --> S{直近12か月で<br/>1時間に0.1回以上か}
-  S -- いいえ --> X4[順位表に載らない]
-  S -- はい --> RK[順位表]
+  J -- いいえ --> DD{📉 RF 2.0 以上・回復 6 か月以下<br/>・総 pips 0 以上か}
+  B --> X2[🚫 S8 で外す]
+  DD -- いいえ --> X3[🚫 dd_filtered.csv]
+  DD -- はい --> S{⏱️ 直近12か月で<br/>1時間に0.1回以上か}
+  S -- いいえ --> X4[🚫 順位表に載らない]
+  S -- はい --> RK[🏆 順位表]
 ```
 
 図の数値はすべて既定値で、各段の引数で変えられる。
