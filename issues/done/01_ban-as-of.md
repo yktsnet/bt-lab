@@ -40,7 +40,7 @@ branch-slug: ban-as-of
 status: close
 type: fix
 対象: core/s3_calc_positions.py, core/s4_ban_build.py, core/s8_strategy_rank.py, core/s_monthly_backfill.py, tests/test_s3_calc_positions.py, tests/test_s4_ban_build.py, tests/test_s8_strategy_rank.py, tests/test_s_monthly_backfill.py, docs/guarantees.md
-内容: いまは s4 が直近N月で作った Ban を s3 が最新ファイルとして自動で拾い、全期間の候補から消している。backfill で過去月のスナップショットを作るときにも未来の月で決めた Ban が効き、選抜手順のウォークフォワード評価が先読みで汚れる。Ban を「その月末時点までのデータだけで作り、選抜の時点（s8）で適用する」形に変え、backfill の各月が当時知り得た情報だけで選ばれるようにする。
+内容: いまは s4 が直近N月で作った Ban を s3 が最新ファイルとして自動で拾い、全期間の候補から消している。backfill で過去月のスナップショットを作るときにも未来の月で決めた Ban が適用され、選抜手順のウォークフォワード評価が先読みで汚れる。Ban を「その月末時点までのデータだけで作り、選抜の時点（s8）で適用する」形に変え、backfill の各月が当時知り得た情報だけで選ばれるようにする。
 対象外: Jaccard 重複排除の残し方（走査順で先の候補を残す）の変更。順位指標の変更（02）。選抜の当たり具合の集計（03）。s5〜s7 の計算対象の絞り込みによる高速化。
 仮定: Ban された候補も s5〜s7 で計算する（s4 の判定に要る s3 は元から全候補を計算しているので、増えるのは s5〜s7 の計算量だけ）。計算量の増加は許容する。s3 の `--ban-file` / `S3_BAN_FILE` の明示指定は計算を省きたいときの手段として残す。
 確認: `PYTHONPATH=. pytest -q` が全件通る（pandas/pyarrow が無ければ CLAUDE.md の nix-shell 経由）。合成データで `python3 examples/sample/generate_data.py` → `DRIP_SIM_DATA=<一時ディレクトリ> python3 bt.py all` が最後まで通り、`ban/` に通常の Ban が、`python3 core/s4_ban_build.py --as-of <YYYY-MM>` で `ban/asof/<YYYY-MM>/entry_ban_all.yaml` ができる。

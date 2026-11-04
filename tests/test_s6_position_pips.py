@@ -141,5 +141,5 @@ def test_run_end_to_end(monkeypatch, tmp_path):
     s6.run(args)
 
     out = pd.read_parquet(events_dir / "01.parquet")
-    # close_price - entry = 30 pips。引数 tp_pips は効かない
+    # close_price - entry = 30 pips。引数 tp_pips は使われない
     assert out.loc[0, "pips_net"] == 30 - 0.3

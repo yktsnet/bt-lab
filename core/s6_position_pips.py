@@ -36,10 +36,10 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="S6: pips_net列の付与")
     add_trading_args(p, spread=True)
     # TP/SL は S5 が close_price に反映済みで、S6 は価格差から pips を出す。
-    # 共通引数として受け取るだけで、S6 の結果には効かない。
+    # 共通引数として受け取るだけで、S6 の結果には使わない。
     for action in p._actions:
         if action.dest in ("tp_pips", "sl_pips"):
-            action.help = "S6 では効かない（S5 に渡した値が close_price に入っている）"
+            action.help = "S6 では使わない（S5 に渡した値が close_price に入っている）"
     p.add_argument("--jobs", type=int, default=None, help="並列プロセス数 (env: S6_JOBS, default: cpu_count)")
     return p.parse_args()
 
