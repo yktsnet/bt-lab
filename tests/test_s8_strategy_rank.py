@@ -245,7 +245,7 @@ def test_pips_tstat_keeps_small_but_nonzero_deviation_and_nans_float_noise():
     [
         (100.0, 2e-8, False),  # 閾値 = 1e-12 * 2乗平均(≈1e4) = 1e-8
         (100.0, 5e-9, True),
-        (0.0, 2e-12, False),  # 2乗平均が 1 未満なので下限 1 が効き、閾値は 1e-12
+        (0.0, 2e-12, False),  # 2乗平均が 1 未満なので下限 1 が適用され、閾値は 1e-12
         (0.0, 5e-13, True),
         (0.01, 2e-12, False),
         (0.01, 5e-13, True),

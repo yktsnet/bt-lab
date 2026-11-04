@@ -162,7 +162,7 @@ def apply_entry_flag(df, params: dict):
 PARAMS_GRID の各軸・各値がなぜその選択か。
 
 ## 弱点・留意点
-このkindが効かない相場、誤検知パターン、運用上の注意。
+このkindで利益が出ない相場、誤検知パターン、運用上の注意。
 ```
 
 ---

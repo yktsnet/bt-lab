@@ -38,7 +38,7 @@ type: fix
 - 書き込みは atomic（`.tmp` に書いてから `os.replace`）にする。S5・S6 の出力の書き込みは今は直接書いているので、ここで揃える
 - S3 の引数で比べるのは `--entry-interval` だけでよい。`--months-limit`・`--ban-file`・`--jobs` は出力の中身を変えない（どの月・どの戦略を処理するかを変えるだけ）
 
-S6 は `_calc_pips` の TP/SL の分岐をやめ、閉じた行はすべて `sign × (close_price − entry) / PIP_SIZE − SPREAD_PIPS` にする。S5 が TP/SL で閉じた行の `close_price` には TP/SL の価格が入っている（`_build_positions` の `cp`）。S6 の CLI から `--tp-pips`・`--sl-pips` を外すかは実行者が決めてよいが、残すなら効かないことを help に書く。
+S6 は `_calc_pips` の TP/SL の分岐をやめ、閉じた行はすべて `sign × (close_price − entry) / PIP_SIZE − SPREAD_PIPS` にする。S5 が TP/SL で閉じた行の `close_price` には TP/SL の価格が入っている（`_build_positions` の `cp`）。S6 の CLI から `--tp-pips`・`--sl-pips` を外すかは実行者が決めてよいが、残すなら使われないことを help に書く。
 
 ### core/s_monthly_sim.py
 
@@ -60,4 +60,4 @@ S3〜S6 と同じ計算になるよう、次の3点を揃える。S5 の `_build
 
 ### docs/overview.md
 
-「S5 の建て方と閉じ方」の S6 の段落（TP/SL の pips を引数の値から決めるので S5 と S6 に同じ値を渡す）、「選抜が当たっているかを確かめる」の月次シムが S7 の数値と一致しないとする段落、「全体に効く決まり」の「引数を変えてやり直すときは出力を消す」を、この変更後の事実に書き換える。
+「S5 の建て方と閉じ方」の S6 の段落（TP/SL の pips を引数の値から決めるので S5 と S6 に同じ値を渡す）、「選抜が当たっているかを確かめる」の月次シムが S7 の数値と一致しないとする段落、「全体に共通する決まり」の「引数を変えてやり直すときは出力を消す」を、この変更後の事実に書き換える。
