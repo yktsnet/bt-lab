@@ -53,7 +53,7 @@ AI/スクリプトからの非対話実行には`bin/bt <stage> [args]`（シェ
 
 `bt.py flow`の対話メニューが選ぶ4フェーズと同じ区切り(`bt.py`の`PHASES`定義)。
 
-`bt.py`が上記8段(S1b〜S8)を配線する単一エントリーポイント。各段は独立したCLIとしても`core/<stage>.py`から直接実行できる。`strategies_md/`が戦略仕様の唯一の正しいソースで、`s2`がkind単位の`template.py`を読み込み`PARAMS_GRID`を直積展開して個別戦略ファイルを生成する（規約は[strategies_md/HOWTO.md](strategies_md/HOWTO.md)）。
+`bt.py`が上記8段(S1b〜S8)を配線する単一エントリーポイント。各段は独立したCLIとしても`core/<stage>.py`から直接実行できる。`strategies_md/`が戦略仕様の正本で、`s2`がkind単位の`template.py`を読み込み`PARAMS_GRID`を直積展開して個別戦略ファイルを生成する。
 
 パイプラインの外に、s8の選抜が翌月の成績を当てているかを測る`bt.py eval`（`core/s_selection_eval.py`）がある。`monthly-backfill`が残した月末スナップショットごとに、選ばれた候補の翌月の`pips_sum_total`を全候補と比べ、`rank/all/eval/selection_eval.csv`に書く。
 
