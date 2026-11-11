@@ -130,3 +130,34 @@ def test_run_pips_sq_sum_total_is_not_rounded_and_sums_across_months(monkeypatch
     quarterly = pd.read_csv(out_dir / "quarterly_all.csv").set_index("quarter")
     assert quarterly.loc[1, "pips_sq_sum_total"] == pytest.approx(expected_jan, abs=1e-12)
     assert quarterly.loc[2, "pips_sq_sum_total"] == pytest.approx(0.01, abs=1e-12)
+
+
+def test_run_quarterly_and_yearly_aggregate_all_columns(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    parquet_root = tmp_path / "parquet_data" / "year=2026"
+    parquet_root.mkdir(parents=True)
+    pd.DataFrame({"time_utc": pd.date_range("2026-01-05", periods=100, freq="5min", tz="UTC")}).to_parquet(
+        parquet_root / "01.parquet", index=False)
+    pd.DataFrame({"time_utc": pd.date_range("2026-02-02", periods=40, freq="5min", tz="UTC")}).to_parquet(
+        parquet_root / "02.parquet", index=False)
+
+    events_root = tmp_path / "pos_events"
+    _write_events(events_root, "rsi_zone", "a20", 2026, 1, [
+        {"type": "close", "pips_net": 10.0},
+        {"type": "close", "pips_net": -4.0},
+    ])
+    _write_events(events_root, "rsi_zone", "a20", 2026, 2, [{"type": "close", "pips_net": 5.0}])
+
+    s7.run()
+
+    bars = s7._bars_in_window(parquet_root / "01.parquet") + s7._bars_in_window(parquet_root / "02.parquet")
+    out_dir = tmp_path / "summary" / "all" / "2026"
+    for name in ("quarterly_all.csv", "yearly_all.csv"):
+        df = pd.read_csv(out_dir / name)
+        assert len(df) == 1, name
+        row = df.iloc[0]
+        assert row["entries_total"] == 3, name
+        assert row["pips_sum_total"] == 11.0, name
+        assert row["bars5m_total"] == bars, name
+        assert row["entry_rate"] == round(3 / bars, 2), name
+        assert row["pips_avg_per_entry"] == round(11.0 / 3, 2), name

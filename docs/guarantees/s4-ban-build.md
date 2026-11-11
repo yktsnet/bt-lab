@@ -8,6 +8,7 @@
 | `_jaccard` は、片方だけが空集合なら `0.0` を返す | `test_jaccard_one_empty_is_0` |
 | `_jaccard` は、それ以外では積集合の大きさを和集合の大きさで割った値を返す | `test_jaccard_partial_overlap` |
 | `_jaccard_dedup` は、類似度が閾値を上回るペアのうち、後から出てきたキーを重複として除く | `test_jaccard_dedup_removes_near_duplicate_later_key` |
+| `_jaccard_dedup` は、類似度がちょうど閾値のペアも重複とする | `test_jaccard_dedup_treats_exact_threshold_as_duplicate` |
 | `_jaccard_dedup` は、類似度が閾値未満のペアをすべて残す | `test_jaccard_dedup_below_threshold_keeps_all` |
 
 ## 対象月とバー数（`_parse_year_month`・`_bars_in_window`・`_list_recent_parquet`）
@@ -28,6 +29,7 @@
 | `run` は、エントリー率が `max_rate` を超える戦略を `reason: high_rate` で Ban の yaml に書く | `test_run_bans_high_rate_strategy` |
 | `run` は、対象月のバー数が0の戦略を `reason: no_data` で Ban の yaml に書く | `test_run_bans_no_data_strategy_when_bars_in_window_is_zero` |
 | `run` は、発火時刻が重なる戦略のうち後のものを `reason: jaccard_dedup` で Ban の yaml に書き、先のものは Ban しない | `test_run_jaccard_dedup_bans_near_duplicate_strategy` |
+| `run` は、`jaccard_dedup` を `min_rate`〜`max_rate` に収まる戦略同士にだけ当てる | `test_run_jaccard_dedup_only_among_rate_ok_strategies` |
 | `run` は、`dry_run=True` なら Ban の yaml を書かない | `test_run_dry_run_does_not_write_ban_file` |
 | `run` は、parquet ファイルが1つも無ければ `no parquet files found` を含むメッセージを表示する | `test_run_no_parquet_files_prints_message` |
 | `run` は、`positions/` が無ければ `positions/ not found` を含むメッセージを表示する | `test_run_no_positions_dir_prints_message` |

@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pandas as pd
 import pytest
 import yaml
@@ -372,3 +374,49 @@ def test_run_min_sig_per_hour_applies_to_tstat_rank_too(monkeypatch, tmp_path):
     tstat = pd.read_csv(rank_root / "rank_by_tstat.csv")
     avg = pd.read_csv(rank_root / "rank_by_pips_avg.csv")
     assert list(tstat["slug"]) == list(avg["slug"]) == ["often"]
+
+
+def test_run_aggregates_only_last_rank_months(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    now = datetime.now(timezone.utc)
+    rows = []
+    y, m = now.year, now.month
+    for back in range(1, 13):
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+        rows.append({
+            "year": y, "month": m, "session": "all", "id": "rsi_zone", "slug": "a",
+            "entries_total": 20, "bars5m_total": 1000, "entry_rate": 0.02,
+            "pips_sum_total": 10.0 if back <= 3 else 100.0, "pips_avg_per_entry": 0.5,
+        })
+    for year in {r["year"] for r in rows}:
+        _write_monthly_csv(tmp_path / "summary", year, [r for r in rows if r["year"] == year])
+
+    s8.run(s8.argparse.Namespace(rank_months=3, rf_min=0.0, recovery_months_max=999.0,
+                                 min_sig_per_hour=0.0, as_of=None))
+
+    rank_sum = pd.read_csv(tmp_path / "rank" / "all" / "rank_by_pips_sum.csv")
+    assert rank_sum.iloc[0]["pips_sum_total"] == 30.0
+    assert rank_sum.iloc[0]["entries_total"] == 60
+
+
+def test_run_moves_strategy_over_recovery_months_max_to_dd_filtered(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    # 月次 1, 1, -30, 1, 100 → recovery_factor=73/30≈2.43, recovery_months=30/25.75≈1.2
+    rows = [{
+        "year": 2026, "month": m, "session": "all", "id": "rsi_zone", "slug": "slow",
+        "entries_total": 20, "bars5m_total": 1000, "entry_rate": 0.02,
+        "pips_sum_total": p, "pips_avg_per_entry": p / 20,
+    } for m, p in zip(range(1, 6), [1.0, 1.0, -30.0, 1.0, 100.0])]
+    _write_monthly_csv(tmp_path / "summary", 2026, rows)
+
+    s8.run(s8.argparse.Namespace(rank_months=999, rf_min=2.0, recovery_months_max=1.0,
+                                 min_sig_per_hour=0.0, as_of=None))
+
+    rank_root = tmp_path / "rank" / "all"
+    dd_filtered = pd.read_csv(rank_root / "dd_filtered.csv")
+    row = dd_filtered[dd_filtered["slug"] == "slow"].iloc[0]
+    assert row["recovery_factor"] >= 2.0
+    assert row["recovery_months"] > 1.0
+    assert pd.read_csv(rank_root / "rank_by_pips_avg.csv").empty

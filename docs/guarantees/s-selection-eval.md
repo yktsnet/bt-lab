@@ -34,3 +34,4 @@
 | `run` は、スナップショットが無ければ `no snapshots` を表示し、何も書かない | `test_no_snapshots_prints_message_and_writes_nothing` |
 | `run` は、月次データが無ければ `monthly_all.csv` を含むメッセージを表示し、何も書かない | `test_no_monthly_data_prints_message_and_writes_nothing` |
 | `run` は、どのスナップショットにも M+1 のデータが無ければ `Nothing to evaluate` を表示し、何も書かない | `test_no_next_month_for_any_snapshot_prints_message` |
+| `bt eval` は、データが無いとき終了コード `0` で終わる | `test_bt_eval_exits_0_without_data` |

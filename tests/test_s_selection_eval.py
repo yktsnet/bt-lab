@@ -258,3 +258,19 @@ def test_eval_stage_is_registered_but_outside_pipeline_order():
     assert bt.STAGES["eval"] == "s_selection_eval.py"
     assert "eval" not in bt.PIPELINE_ORDER
     assert all("eval" not in stages for _, stages in bt.PHASES)
+
+
+@pytest.mark.parametrize("setup", ["empty", "snapshot_only"])
+def test_bt_eval_exits_0_without_data(tmp_path, setup):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    if setup == "snapshot_only":
+        _write_rank(tmp_path, "2026-01", "rank_by_pips_avg", ["a"])
+    repo = Path(__file__).resolve().parents[1]
+    env = dict(os.environ, DRIP_SIM_DATA=str(tmp_path))
+    proc = subprocess.run([sys.executable, str(repo / "bt.py"), "eval"], cwd=repo, env=env,
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr

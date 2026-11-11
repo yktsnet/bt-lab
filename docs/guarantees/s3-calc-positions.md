@@ -17,11 +17,13 @@
 |---|---|
 | `_add_session_column` は、`time_utc` 列が無ければ `session` 列を空文字列で埋める | `test_add_session_column_without_time_utc_is_empty_string` |
 | `_add_session_column` は、`time_utc` の時刻に応じて `session` 列に `TYO`・`LON` を入れる | `test_add_session_column_assigns_expected_sessions` |
+| `_add_session_column` は、`NYC` の時間帯に `NYC` を入れる | `test_add_session_column_assigns_nyc` |
 | `_out_path` は `<root>/<kind>/<slug>/year=<year>/<MM>.parquet` のパスを組み立てる | `test_out_path_and_parse_year_month_roundtrip` |
 | `_parse_year_month` は、`year=<year>/<MM>.parquet` のパスから `(year, month)` の整数のタプルを取り出す | `test_out_path_and_parse_year_month_roundtrip` |
 | `_jobs` は、数値の文字列をそのジョブ数にする | `test_jobs_auto_and_explicit_and_invalid` |
 | `_jobs` は、`"auto"` に1以上のジョブ数を返す | `test_jobs_auto_and_explicit_and_invalid` |
 | `_jobs` は、数値でない文字列でも例外を出さずに1以上のジョブ数を返す | `test_jobs_auto_and_explicit_and_invalid` |
+| `_jobs` は、未指定と数値でない値のときに CPU 数を返す | `test_jobs_unset_and_invalid_return_cpu_count` |
 
 ## 戦略・月ごとの計算（`_process_strategy_month`）
 
@@ -43,3 +45,5 @@
 | `run` は、対象月・戦略ごとに `positions/<kind>/<slug>/year=<year>/<MM>.parquet` を書き出す | `test_run_end_to_end_writes_positions` |
 | `run` は、`ban/` に Ban ファイルがあっても自動では適用しない | `test_run_does_not_auto_apply_latest_ban_file` |
 | `run` は、`--ban-file` で明示した Ban ファイルの戦略を計算しない | `test_run_applies_explicit_ban_file` |
+| `run` は、環境変数 `S3_BAN_FILE` で指定した Ban ファイルを適用する | `test_run_applies_ban_file_from_env` |
+| `run` は `entry_interval` の設定を反映する | `test_run_applies_entry_interval` |

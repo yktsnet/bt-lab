@@ -271,3 +271,20 @@ def test_s5_tp_40_then_s6_without_args_gives_40_minus_spread(tmp_path):
     tp = out[(out["type"] == "close") & (out["abnormal"] == "TP")]
     assert len(tp) == 1
     assert tp["pips_net"].iloc[0] == pytest.approx(40 - 0.3)
+
+
+def test_build_positions_opens_on_bar_after_entry_flag():
+    env = {"PIP_SIZE": "0.01", "RR_TP_PIPS": "50", "RR_SL_PIPS": "50"}
+    rows = [
+        _row("2026-01-05T01:00", 100.00, 100.01, 99.99, 100.00, entry_flag=1, side="BUY"),
+        _row("2026-01-05T01:05", 100.03, 100.04, 100.02, 100.03),
+        _row("2026-01-05T01:10", 100.07, 100.08, 100.06, 100.07),
+    ]
+    opens = [o for o in s5._build_positions(rows, "rsi_zone", env) if o["type"] == "open"]
+    assert len(opens) == 1
+    assert opens[0]["time_utc"] == "2026-01-05T01:05"
+    assert opens[0]["entry"] == 100.03
+
+
+def test_iv_returns_default_for_non_numeric():
+    assert s5._iv({"X": "bad"}, "X", 4) == 4

@@ -37,3 +37,9 @@ def test_ensure_dirs_creates_all(monkeypatch, tmp_path):
     env_paths.ensure_dirs()
     for sub in ["", "bt_data", "parquet_data", "strategies", "logs"]:
         assert (tmp_path / sub).is_dir()
+
+
+def test_import_root_ignores_drip_sim_data(monkeypatch, tmp_path):
+    app_root = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    assert env_paths.get_import_root() == app_root / "import"

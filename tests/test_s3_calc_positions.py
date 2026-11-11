@@ -285,3 +285,36 @@ def test_run_applies_explicit_ban_file(monkeypatch, tmp_path):
     s3.run(s3.argparse.Namespace(months_limit=None, ban_file=str(ban_path), jobs="1", entry_interval=0))
 
     assert not (tmp_path / "positions" / "rsi_zone" / "a20").exists()
+
+
+def test_add_session_column_assigns_nyc():
+    df = pd.DataFrame({"time_utc": pd.to_datetime(["2026-01-05T14:00:00Z"])})
+    out = s3._add_session_column(df)
+    assert list(out["session"]) == ["NYC"]
+
+
+def test_jobs_unset_and_invalid_return_cpu_count(monkeypatch):
+    monkeypatch.delenv("ENTRY_JOBS", raising=False)
+    monkeypatch.setattr(s3.os, "cpu_count", lambda: 7)
+    assert s3._jobs() == 7
+    assert s3._jobs("not-a-number") == 7
+
+
+def test_run_applies_entry_interval(monkeypatch, tmp_path):
+    _setup_s3_run(monkeypatch, tmp_path)
+    s3.run(s3.argparse.Namespace(months_limit=None, ban_file=None, jobs="1", entry_interval=30))
+    out_path = tmp_path / "positions" / "rsi_zone" / "a20" / "year=2026" / "01.parquet"
+    result = pd.read_parquet(out_path)
+    assert len(result) > 0
+    assert (pd.to_datetime(result["time_utc"]).dt.minute % 30 == 0).all()
+
+
+def test_run_applies_ban_file_from_env(monkeypatch, tmp_path):
+    _setup_s3_run(monkeypatch, tmp_path)
+    ban_path = tmp_path / "env_ban.yaml"
+    ban_path.write_text(yaml.dump({"entries": [{"id": "rsi_zone", "slug": "a20"}]}))
+    monkeypatch.setenv("S3_BAN_FILE", str(ban_path))
+
+    s3.run(s3.argparse.Namespace(months_limit=None, ban_file=None, jobs="1", entry_interval=0))
+
+    assert not (tmp_path / "positions" / "rsi_zone" / "a20").exists()

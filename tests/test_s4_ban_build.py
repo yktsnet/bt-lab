@@ -302,3 +302,33 @@ def test_run_as_of_rejects_malformed_value(monkeypatch, tmp_path):
     monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
     with pytest.raises(ValueError):
         s4.run(months=1, min_rate=0.05, max_rate=0.9, jaccard_thr=0.99, dry_run=False, as_of="2026-1")
+
+
+def test_jaccard_dedup_treats_exact_threshold_as_duplicate():
+    ts = {"a": {1, 2, 3, 4}, "b": {1, 2, 3, 5}}  # jaccard = 3/5 = 0.6
+    survivors, removed = s4._jaccard_dedup(ts, thr=0.6)
+    assert survivors == ["a"]
+    assert removed == ["b"]
+
+
+def test_run_jaccard_dedup_only_among_rate_ok_strategies(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+
+    parquet_root = tmp_path / "parquet_data" / "year=2026"
+    parquet_root.mkdir(parents=True)
+    times = pd.date_range("2026-01-05", periods=100, freq="5min", tz="UTC")
+    pd.DataFrame({"time_utc": times}).to_parquet(parquet_root / "01.parquet", index=False)
+
+    positions_root = tmp_path / "positions"
+    # a_busy は high_rate で落ちる。b_ok の時刻は a_busy に含まれ jaccard = 30/95 > 0.3
+    busy_times = pd.date_range("2026-01-05", periods=95, freq="5min", tz="UTC")
+    ok_times = busy_times[:30]
+    _write_positions(positions_root, "rsi_zone", "a_busy", 2026, 1, busy_times)
+    _write_positions(positions_root, "rsi_zone", "b_ok", 2026, 1, ok_times)
+
+    s4.run(months=1, min_rate=0.05, max_rate=0.9, jaccard_thr=0.3, dry_run=False)
+
+    doc = yaml.safe_load(next((tmp_path / "ban").glob("entry_ban_all_*.yaml")).read_text())
+    reasons = {e["slug"]: e["reason"] for e in doc["entries"]}
+    assert reasons.get("a_busy") == "high_rate"
+    assert "b_ok" not in reasons
