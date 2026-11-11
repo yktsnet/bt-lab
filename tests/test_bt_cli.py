@@ -320,3 +320,22 @@ def test_fzf_select_returns_none_on_empty_choice(monkeypatch):
     monkeypatch.setattr(bt.shutil, "which", lambda name: "/usr/bin/fzf")
     monkeypatch.setattr(bt.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": "\n", "returncode": 0})())
     assert bt._fzf_select(["x"], "p") is None
+
+
+def test_result_entries_lists_monthly_newest_first(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    for ym in ["2026-04", "2026-06", "2026-05"]:
+        (tmp_path / "monthly" / ym).mkdir(parents=True)
+    labels = [label for label, _ in bt._result_entries()]
+    assert labels == ["monthly/2026-06", "monthly/2026-05", "monthly/2026-04"]
+
+
+def test_last_run_text_n_days_is_floor(tmp_path):
+    d = tmp_path / "out"
+    d.mkdir()
+    f = d / "f.csv"
+    f.write_text("x")
+    for days, expected in [(2.9, 2), (3.99, 3), (10.5, 10)]:
+        old = time.time() - days * 86400
+        os.utime(f, (old, old))
+        assert bt._last_run_text(d) == f"updated {expected} days ago"

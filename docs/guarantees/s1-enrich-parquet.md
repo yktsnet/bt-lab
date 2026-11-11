@@ -12,6 +12,7 @@
 | `_enrich_file` は、`time_utc` が整数ミリ秒で保存されていても日時に直してから計算する | `test_enrich_file_converts_int_ms_time_utc` |
 | `_enrich_file` は、書き込み中に例外が起きても元のファイルを壊さない | `test_enrich_file_write_failure_leaves_original_file_untouched` |
 | `main` は、`--year` を指定しなければ全年のファイルを処理する | `test_main_default_processes_all_years` |
+| `main` は、`--year` を指定するとその年のファイルだけを処理する | `test_main_year_filter_enriches_only_that_years_files` |
 
 ## registry に載る列
 

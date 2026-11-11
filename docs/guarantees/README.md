@@ -35,27 +35,3 @@
 | [s-selection-eval](s-selection-eval.md) |
 | [bt-cli](bt-cli.md) |
 
-## Gaps
-
-- `get_import_root()` が `DRIP_SIM_DATA` の影響を受けないこと。テストは `DRIP_SIM_DATA` を設定せずに呼んでいる
-- `add_trading_args` が、`spread=True`・`eod=True` を渡さなければ `--spread-pips`・`--eod-utc` を足さないこと。テストが見ている属性名は `spread`・`eod` で、実際の `spread_pips`・`eod_utc` が足されていても通る
-- `compute_all` が、`import/feature_registry.yaml` の `precompute` に無いキーを返さないこと。テストは registry の一覧が出力に含まれることだけを確かめている
-- `prev_day_high_low` が、前日の無い最初の日の `prev_day_low_1`・`prev_day_high_5`・`prev_day_low_5` を `NaN` にすること。テストは `prev_day_high_1` だけを確かめている
-- S1c の `main` が、`--year` を指定するとその年のファイルだけを処理すること。テスト（`test_main_year_filter_processes_only_matching_year`）は処理したファイルの数だけを見ていて、どの年かは見ていない
-- S3 の `_add_session_column` が、`NYC` の時間帯に `NYC` を入れること。テストは `TYO`・`LON` だけである
-- S3 の `_jobs` が、未指定と数値でない値のときに CPU 数を返すこと。テストは1以上であることだけを見ている
-- S3 の `run` が `entry_interval` の設定を反映すること。`run` のテストはどれも `entry_interval=0` である
-- S3 の `run` が、環境変数 `S3_BAN_FILE` で指定した Ban ファイルを適用すること。テストは引数の `ban_file` だけである
-- S4 の `_jaccard_dedup` が、類似度がちょうど閾値のペアも重複とすること。テストの類似度は閾値を上回る値だけである
-- S4 の `run` が、`jaccard_dedup` を `min_rate`〜`max_rate` に収まる戦略同士にだけ当てること。テストには、率で Ban される戦略と重複する戦略を同時に置いた場合が無い
-- S5 の `_build_positions` が、`entry_flag` の立ったバーの次のバーで建てること。テストは建てたバーの時刻と価格を見ていない
-- S5・S6 の `_iv` が、数値として読めない設定値に既定値を返すこと。テストは `_fv` の場合だけである
-- S7 の `run` が四半期・年次の CSV に書く `pips_avg_per_entry`・`bars5m_total`・`entry_rate`、年次の `entries_total`、四半期の `pips_sum_total` の値。テストが値を見ているのは、四半期の `entries_total`・`pips_sq_sum_total` と、年次の `pips_sum_total`・`pips_sq_sum_total` だけである
-- S8 の `run` が直近 `rank_months` か月だけを集計すること。テストは `rank_months=999` などで全期間を含めている
-- S8 の `run` が、`recovery_months` が `recovery_months_max` を超える戦略を `dd_filtered.csv` へ回すこと。テストで落ちる戦略は `recovery_factor` だけで落ちている
-- 月次シムの `_target_months` が、`sim_month` が空のとき先月までの12か月を返すこと。テストは件数と並び順しか見ていない
-- 月次シムの `run` が、前月のスナップショットが無い月に何も書かないこと。テストはメッセージしか確かめていない
-- `_months_to_backfill(n)` が直近の `n` か月を返すこと。テストは件数・並び順・連続性しか見ていない
-- `bt eval` が、データが無いとき終了コード `0` で終わること。テストは表示と、何も書かないことしか確かめていない
-- `_result_entries` が `monthly/<YYYY-MM>` を新しい順に並べること。テストの `monthly/` は1件だけである
-- `_last_run_text` の `updated N days ago` の N が経過日数の切り捨てであること。テストは経過がちょうど3日の場合だけである

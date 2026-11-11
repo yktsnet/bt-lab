@@ -40,6 +40,7 @@
 | `pivot_points(df)` は、前日の無い最初の日の `pivot_p` を `NaN` にする | `test_pivot_points_uses_previous_day_ohlc` |
 | `prev_day_high_low(df)` は `prev_day_high_1`・`prev_day_low_1`・`prev_day_high_5`・`prev_day_low_5` の4キーを返す | `test_prev_day_high_low_shifts_by_one_day` |
 | `prev_day_high_low(df)` は、前日の無い最初の日の `prev_day_high_1` を `NaN` にする | `test_prev_day_high_low_shifts_by_one_day` |
+| `prev_day_high_low(df)` は、前日の無い最初の日の `prev_day_low_1`・`prev_day_high_5`・`prev_day_low_5` を `NaN` にする | `test_prev_day_high_low_first_day_is_nan_for_all_columns` |
 
 ## `compute_all` の出力
 
@@ -48,6 +49,7 @@
 | `compute_all(df)` は、どのキーにも入力と同じ長さの系列を返す | `test_compute_all_returns_float32_series_for_every_key` |
 | `compute_all(df)` は、どのキーにも `float32` の系列を返す | `test_compute_all_returns_float32_series_for_every_key` |
 | `compute_all(df)` は、`import/feature_registry.yaml` の `precompute` にある特徴量をすべて返す | `test_compute_all_covers_every_precompute_feature_in_registry` |
+| `compute_all(df)` は、`import/feature_registry.yaml` の `precompute` に無いキーを返さない | `test_compute_all_returns_no_keys_outside_registry_precompute` |
 | `compute_all(df)` は、`time_utc` 列の無い入力には日次特徴量（`pivot_p`・`prev_day_high_1` など）を返さない | `test_compute_all_without_time_utc_skips_daily_features` |
 | `compute_all(df)` は、`time_utc` 列の無い入力にも日次特徴量以外（`rsi14` など）を返す | `test_compute_all_without_time_utc_skips_daily_features` |
 | `compute_all(df)` のキーは、どれも `[a-z][a-z0-9_]*` のスネーク記法である | `test_compute_all_keys_follow_snake_case_naming_convention` |

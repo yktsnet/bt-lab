@@ -10,6 +10,7 @@
 | `_fv` は、設定値が無ければ既定値を返す | `test_fv_iv_defaults_and_fallback`（`tests/test_s5_position_engine.py`） |
 | `_fv` は、設定値が数値として読めなければ例外を出さずに既定値を返す | `test_fv_iv_defaults_and_fallback`（`tests/test_s5_position_engine.py`） |
 | `_iv` は、設定値が無ければ既定値を返す | `test_fv_iv_defaults_and_fallback`（`tests/test_s5_position_engine.py`） |
+| `_iv` は、設定値が数値として読めなければ既定値を返す | `test_iv_returns_default_for_non_numeric`（`tests/test_s5_position_engine.py`） |
 
 ## ポジションの建て方と閉じ方（`_build_positions`）
 
@@ -20,6 +21,7 @@
 | `_build_positions` は、`EOD_UTC` に達すると未決済のポジションを `abnormal="EOD"` で閉じる | `test_build_positions_eod_forces_close` |
 | `_build_positions` は、`high - low` が `ABN_BURST_HL_PIPS` 以上のバーのあと、`ABN_FORWARD_BLOCK_BARS` 本のエントリーを建てない | `test_build_positions_spark_blocks_forward_entries` |
 | `_build_positions` は、`MAX_ENTRIES_PER_STRAT` を超えてポジションを建てない | `test_build_positions_max_entries_per_strat_caps_opens` |
+| `_build_positions` は、`entry_flag` の立ったバーの次のバーで建てる | `test_build_positions_opens_on_bar_after_entry_flag` |
 
 ## 戦略・月ごとの計算（`_process_one`・`run`）
 

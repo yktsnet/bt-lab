@@ -23,9 +23,9 @@ def test_add_trading_args_defaults_are_none():
 def test_optional_args_only_added_when_enabled():
     p = _parser()
     args = p.parse_args([])
-    assert not hasattr(args, "spread")
+    assert not hasattr(args, "spread_pips")
     assert not hasattr(args, "lot")
-    assert not hasattr(args, "eod")
+    assert not hasattr(args, "eod_utc")
 
     p2 = _parser(spread=True, lot=True, eod=True)
     args2 = p2.parse_args(["--spread-pips", "0.5", "--lot", "0.2", "--eod-utc", "16:30"])

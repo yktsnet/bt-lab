@@ -25,6 +25,8 @@
 |---|---|
 | `run` は、サマリーディレクトリが無ければ `Run s7 first` を含むメッセージを表示する | `test_run_no_summary_dir_prints_message` |
 | `run` は、`recovery_factor` が `rf_min` に届かない戦略を `rank_by_pips_avg.csv` から外し、`dd_filtered.csv` に入れる | `test_run_ranks_and_filters_by_recovery_factor` |
+| `run` は、`recovery_months` が `recovery_months_max` を超える戦略を `dd_filtered.csv` へ回す | `test_run_moves_strategy_over_recovery_months_max_to_dd_filtered` |
+| `run` は直近 `rank_months` か月だけを集計する | `test_run_aggregates_only_last_rank_months` |
 | `run` は、エントリー頻度が `min_sig_per_hour` 未満の戦略をランキングから外す | `test_run_min_sig_per_hour_excludes_low_frequency_strategies` |
 
 ## Ban の適用（`run`）

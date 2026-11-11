@@ -48,6 +48,7 @@
 | 保証 | 対応テスト |
 |---|---|
 | `_result_entries` は `rank/all` → `rank/all/history/<timestamp>`（新しい順）→ `monthly/<YYYY-MM>` の順に結果ディレクトリを並べる | `test_result_entries_lists_latest_history_then_monthly` |
+| `_result_entries` は `monthly/<YYYY-MM>` を新しい順に並べる | `test_result_entries_lists_monthly_newest_first` |
 | `_view_results` は、結果が1つも無ければ `no results found` を表示する | `test_view_results_no_results_prints_message` |
 | `_view_results` は、選んだディレクトリの CSV の中身を表示する | `test_view_results_selects_and_prints_csv` |
 
@@ -70,4 +71,5 @@
 | `_last_run_text` は、最終更新から1日未満なら `updated today` を返す | `test_last_run_text_updated_today` |
 | `_last_run_text` は、最終更新から1日以上2日未満なら `updated 1 day ago` を返す | `test_last_run_text_updated_one_day_ago` |
 | `_last_run_text` は、最終更新から2日以上なら `updated N days ago` を返す | `test_last_run_text_updated_n_days_ago` |
+| `_last_run_text` の `updated N days ago` の N は経過日数の切り捨てである | `test_last_run_text_n_days_is_floor` |
 | `_last_run_text` は、ファイルが複数あれば最も新しい mtime を最終更新とする | `test_last_run_text_uses_latest_file_among_many` |

@@ -23,4 +23,6 @@
 | `run` の月次の `entry_rate` は、`entries_total / bars5m_total` である | `test_run_produces_monthly_quarterly_yearly_csv_with_correct_aggregates` |
 | `run` の `pips_sq_sum_total` は、クローズの `pips_net` の2乗の合計で、丸めない | `test_run_produces_monthly_quarterly_yearly_csv_with_correct_aggregates`, `test_run_pips_sq_sum_total_is_not_rounded_and_sums_across_months` |
 | `run` の四半期・年次の `pips_sq_sum_total` は、月次の合計である | `test_run_pips_sq_sum_total_is_not_rounded_and_sums_across_months` |
+| `run` の四半期・年次の `entries_total`・`pips_sum_total`・`bars5m_total` は、月次の合計である | `test_run_quarterly_and_yearly_aggregate_all_columns` |
+| `run` の四半期・年次の `pips_avg_per_entry` は `pips_sum_total / entries_total`、`entry_rate` は `entries_total / bars5m_total` である | `test_run_quarterly_and_yearly_aggregate_all_columns` |
 | `run` は、`type` 列が無いファイルとクローズの行が無いファイルを飛ばし、`no records found` を含むメッセージを表示する | `test_run_skips_files_without_type_column_or_empty_close` |

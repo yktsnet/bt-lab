@@ -159,3 +159,15 @@ def test_real_registry_columns_are_all_computed_by_compute_all():
     df = _bars(n=300)
     missing = [c for c in s1c.registry_columns() if c not in compute_all(df)]
     assert missing == []
+
+
+def test_main_year_filter_enriches_only_that_years_files(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    parquet_root = tmp_path / "parquet_data"
+    _write(parquet_root / "year=2024" / "01.parquet", _bars())
+    _write(parquet_root / "year=2025" / "01.parquet", _bars())
+
+    s1c.main(s1c.argparse.Namespace(year="2025"))
+
+    assert "rsi14" in pd.read_parquet(parquet_root / "year=2025" / "01.parquet").columns
+    assert "rsi14" not in pd.read_parquet(parquet_root / "year=2024" / "01.parquet").columns

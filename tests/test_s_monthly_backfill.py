@@ -81,3 +81,16 @@ def test_run_aborts_on_sim_failure(monkeypatch):
         backfill.run(backfill.argparse.Namespace(months=2))
     assert exc.value.code == 1
     assert len(calls) == 3  # S4 and S8 succeeded, sim for first month failed -> abort
+
+
+def test_months_to_backfill_returns_last_n_months():
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).date()
+    y, m = today.year, today.month
+    expected = []
+    for _ in range(4):
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+        expected.append(f"{y}-{m:02d}")
+    assert backfill._months_to_backfill(4) == sorted(expected)

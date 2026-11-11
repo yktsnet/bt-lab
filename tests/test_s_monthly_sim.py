@@ -262,3 +262,31 @@ def test_run_does_not_open_positions_on_bars_without_side(monkeypatch, tmp_path)
     assert csvs
     for c in csvs:
         assert (pd.read_csv(c)["entries"] == 0).all()
+
+
+def _expected_last_12_months():
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).date()
+    y, m = today.year, today.month
+    out = []
+    for _ in range(12):
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+        out.append(date(y, m, 1))
+    return sorted(out)
+
+
+def test_target_months_default_is_12_months_up_to_last_month():
+    assert sim._target_months("") == _expected_last_12_months()
+
+
+def test_run_writes_nothing_for_month_without_snapshot(monkeypatch, tmp_path):
+    monkeypatch.setenv("DRIP_SIM_DATA", str(tmp_path))
+    args = sim.argparse.Namespace(
+        pip_size=None, tp_pips=None, sl_pips=None, max_entries=None,
+        abn_burst_pips=None, abn_forward_block_bars=None, spread_pips=None, month="2026-02",
+    )
+    sim.run(args)
+    monthly_root = tmp_path / "monthly"
+    assert not monthly_root.exists() or not any(p.is_file() for p in monthly_root.rglob("*"))

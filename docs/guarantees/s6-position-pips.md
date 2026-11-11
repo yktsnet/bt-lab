@@ -6,6 +6,7 @@
 |---|---|
 | `_fv` は、設定値が無ければ既定値を返す | `test_fv_iv_defaults_and_fallback`（`tests/test_s6_position_pips.py`） |
 | `_fv` は、設定値が数値として読めなければ例外を出さずに既定値を返す | `test_fv_iv_defaults_and_fallback`（`tests/test_s6_position_pips.py`） |
+| `_iv` は、設定値が数値として読めなければ既定値を返す | `test_iv_returns_default_for_non_numeric`（`tests/test_s6_position_pips.py`） |
 | `_calc_pips` は、閉じた行の `pips_net` を、`(close_price - entry) / PIP_SIZE` に売買方向（BUY・SELL）の符号を付け、`SPREAD_PIPS` を引いた値にする | `test_calc_pips_tp_and_sl_are_computed_from_price_delta_not_args`, `test_calc_pips_other_reason_computed_from_price_delta` |
 | `_calc_pips` は、TP・SL で閉じた行にも価格差を使い、`RR_TP_PIPS`・`RR_SL_PIPS` を使わない | `test_calc_pips_tp_and_sl_are_computed_from_price_delta_not_args` |
 | `_calc_pips` は、`close_price` が欠けた行の `pips_net` を `NaN` にする | `test_calc_pips_missing_price_yields_nan` |

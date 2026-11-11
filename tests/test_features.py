@@ -204,3 +204,22 @@ def test_compute_all_keys_follow_snake_case_naming_convention():
     assert keys
     for name in keys:
         assert re.fullmatch(r"[a-z][a-z0-9_]*", name), name
+
+
+def test_compute_all_returns_no_keys_outside_registry_precompute():
+    registry_path = Path(__file__).resolve().parents[1] / "import" / "feature_registry.yaml"
+    registry = yaml.safe_load(registry_path.read_text())
+    allowed = set(registry["precompute"])
+
+    produced = set(features.compute_all(_ohlc(300)).keys())
+    extra = produced - allowed
+    assert not extra, f"compute_all returns keys not in registry precompute: {extra}"
+
+
+def test_prev_day_high_low_first_day_is_nan_for_all_columns():
+    df = _ohlc(400)
+    out = features.prev_day_high_low(df)
+    first_day = df["time_utc"].dt.date.iloc[0]
+    mask_first = df["time_utc"].dt.date == first_day
+    for key in ("prev_day_low_1", "prev_day_high_5", "prev_day_low_5"):
+        assert out[key][mask_first].isna().all(), key
