@@ -6,8 +6,7 @@
 |---|---|
 | `trading_days_in_month` は、その月の土日を除いた日付を返す | `test_trading_days_in_month_excludes_weekends` |
 | `_target_months` は、`sim_month` を指定するとその1か月だけを返す | `test_target_months_explicit_sim_month` |
-| `_target_months` は、`sim_month` が空なら12か月を古い順に返す | `test_target_months_default_returns_12_months_ending_last_month` |
-| `_target_months` は、`sim_month` が空なら先月までの12か月を返す | `test_target_months_default_is_12_months_up_to_last_month` |
+| `_target_months` は、`sim_month` が空なら先月までの12か月を古い順に返す | `test_target_months_default_returns_12_months_ending_last_month`, `test_target_months_default_is_12_months_up_to_last_month` |
 | `_load_strategies_from_snapshot` は、スナップショットのランク CSV から `pips_avg_per_entry` が `min_avg` 以上の戦略だけを読む | `test_load_strategies_from_snapshot_filters_by_min_avg` |
 | `_load_strategies_from_snapshot` は、戦略ファイルが無い行を無視する | `test_load_strategies_from_snapshot_filters_by_min_avg` |
 | `_load_strategies_from_snapshot` は、スナップショットが無ければ空のリストを返し、`snapshot not found` を表示する | `test_load_strategies_from_snapshot_missing_snapshot_returns_empty` |
